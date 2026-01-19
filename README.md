@@ -1,6 +1,6 @@
-# kubers
+# kubegen
 
-kubers is a Rust based CLI for scaffolding Kubernetes operators using kube-rs.
+kubegen is a Rust based CLI for scaffolding Kubernetes operators using kube-rs.
 
 Think Kubebuilder, but for Rust.
 
@@ -11,7 +11,7 @@ Think Kubebuilder, but for Rust.
 - Follow kube-rs best practices
 - Keep generated code explicit and owned by the user
 
-## What kubers does
+## What kubegen does
 
 - Scaffold a new Rust operator project
 - Generate CRDs and Rust types
@@ -31,11 +31,11 @@ Early development. APIs and templates may change.
 ## Usage
 
 ```bash
-kubers new my-operator
-kubers add crd MyResource
-kubers add metrics
-kubers add webhook MyResource
-````
+kubegen new my-operator
+kubegen add crd MyResource
+kubegen add metrics
+kubegen add webhook MyResource
+```
 
 ## Contributing
 
