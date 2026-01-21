@@ -2,7 +2,8 @@
 
 use clap::Parser;
 use kubegen::cli::{AddCommands, Cli, Commands};
-use tracing::{debug, info};
+use kubegen::commands::execute_new;
+use tracing::{debug, error, info};
 
 fn main() {
     let cli = Cli::parse();
@@ -12,15 +13,8 @@ fn main() {
 
     debug!("CLI arguments parsed successfully");
 
-    match cli.command {
-        Commands::New(args) => {
-            info!("Creating new operator project: {}", args.name);
-            debug!(domain = %args.domain, dry_run = args.dry_run, "Project settings");
-            if args.dry_run {
-                info!("(dry-run mode - no files will be created)");
-            }
-            // TODO: Implement project generation
-        }
+    let result = match cli.command {
+        Commands::New(args) => execute_new(&args),
         Commands::Add(add_cmd) => match add_cmd {
             AddCommands::Crd(args) => {
                 info!("Adding CRD: {}", args.kind);
@@ -31,11 +25,13 @@ fn main() {
                     "CRD settings"
                 );
                 // TODO: Implement CRD generation
+                Ok(())
             }
             AddCommands::Metrics(args) => {
                 info!("Adding metrics support");
                 debug!(port = args.port, dry_run = args.dry_run, "Metrics settings");
                 // TODO: Implement metrics generation
+                Ok(())
             }
             AddCommands::Webhook(args) => {
                 info!("Adding webhook for: {}", args.kind);
@@ -46,7 +42,13 @@ fn main() {
                     "Webhook settings"
                 );
                 // TODO: Implement webhook generation
+                Ok(())
             }
         },
+    };
+
+    if let Err(e) = result {
+        error!("{}", e);
+        std::process::exit(1);
     }
 }
