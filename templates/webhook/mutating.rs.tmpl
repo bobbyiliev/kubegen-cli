@@ -1,36 +1,48 @@
-//! Mutating webhook for {{kind}}
+//! Mutating admission webhook for {{kind}}
+//!
+//! This webhook mutates {{kind}} resources before they are persisted.
 
-use kube::core::{
-    admission::{AdmissionRequest, AdmissionResponse},
-    DynamicObject,
-};
+use kube::core::admission::{AdmissionRequest, AdmissionResponse};
+use kube::core::DynamicObject;
 use serde_json::json;
-use tracing::info;
-
-use crate::{{kind_snake}}::types::{{kind}};
+use tracing::{debug, info};
 
 /// Mutate a {{kind}} resource
-pub fn mutate(req: AdmissionRequest<{{kind}}>) -> AdmissionResponse {
-    let name = req.name.as_deref().unwrap_or("<unknown>");
-    info!("Mutating {{kind}}: {}", name);
+///
+/// Returns an AdmissionResponse with optional patches to apply.
+pub fn mutate(request: AdmissionRequest<DynamicObject>) -> AdmissionResponse {
+    let name = request.name.clone();
+    debug!("Mutating {{kind}} '{}'", name);
 
-    let mut res = AdmissionResponse::from(&req);
+    // Get the object being mutated
+    let _object = match &request.object {
+        Some(obj) => obj,
+        None => {
+            // DELETE operations may not have an object
+            return AdmissionResponse::from(&request).allow();
+        }
+    };
 
     // TODO: Add your mutation logic here
-    // Example: set default values
-    let mut patches = Vec::new();
+    // Example mutations:
+    // - Add default values for optional fields
+    // - Inject sidecar containers
+    // - Add labels or annotations
+    // - Normalize field values
 
-    // Example: add a default label if not present
-    patches.push(json!({
-        "op": "add",
-        "path": "/metadata/labels/managed-by",
-        "value": "{{project_name}}"
-    }));
+    // Example: Add a default label if not present
+    let patches = vec![
+        json!({
+            "op": "add",
+            "path": "/metadata/labels/managed-by",
+            "value": "{{kind_snake}}-operator"
+        }),
+    ];
 
-    if !patches.is_empty() {
-        res = res.with_patch(json!(patches)).expect("Failed to create patch");
-    }
+    info!("Applied {} mutations to {{kind}} '{}'", patches.len(), name);
 
-    info!("{{kind}} {} mutation complete", name);
-    res
+    // Return response with patches
+    AdmissionResponse::from(&request)
+        .with_patch(json!(patches))
+        .expect("valid patch")
 }
