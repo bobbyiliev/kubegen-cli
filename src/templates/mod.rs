@@ -4,12 +4,14 @@
 //! This module defines a flexible template system that can be used to generate
 //! Kubernetes manifests, Rust source files, and other scaffolded content.
 
+pub mod context;
 pub mod embedded;
 
 use std::collections::HashMap;
 
 use crate::error::{KubegenError, Result};
 
+pub use context::{CrdContext, CrdContextBuilder, ProjectContext, ProjectContextBuilder};
 pub use embedded::{
     get_template, get_template_by_category, list_all_templates, list_templates, template_exists,
     TemplateAssets, TemplateCategory,
