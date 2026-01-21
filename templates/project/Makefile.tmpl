@@ -1,0 +1,53 @@
+.PHONY: build test run clean docker-build docker-push deploy undeploy fmt lint
+
+# Project settings
+PROJECT_NAME := {{project_name}}
+IMG ?= $(PROJECT_NAME):latest
+
+# Build the operator binary
+build:
+	cargo build --release
+
+# Run tests
+test:
+	cargo test
+
+# Run the operator locally
+run:
+	cargo run
+
+# Clean build artifacts
+clean:
+	cargo clean
+
+# Build Docker image
+docker-build:
+	docker build -t $(IMG) .
+
+# Push Docker image
+docker-push:
+	docker push $(IMG)
+
+# Deploy to Kubernetes
+deploy:
+	kubectl apply -f manifests/
+
+# Remove from Kubernetes
+undeploy:
+	kubectl delete -f manifests/
+
+# Format code
+fmt:
+	cargo fmt
+
+# Run linter
+lint:
+	cargo clippy -- -D warnings
+
+# Install CRDs
+install-crds:
+	kubectl apply -f manifests/crds/
+
+# Uninstall CRDs
+uninstall-crds:
+	kubectl delete -f manifests/crds/

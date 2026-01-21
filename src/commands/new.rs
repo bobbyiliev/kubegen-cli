@@ -75,6 +75,7 @@ fn get_paths_to_create(project_dir: &Path) -> Vec<std::path::PathBuf> {
         project_dir.join("src"),
         project_dir.join("Cargo.toml"),
         project_dir.join("README.md"),
+        project_dir.join("Makefile"),
         project_dir.join(".gitignore"),
         project_dir.join("src/main.rs"),
         project_dir.join("src/lib.rs"),
@@ -97,6 +98,9 @@ fn execute_dry_run(project_dir: &Path, ctx: &TemplateContext) -> Result<()> {
 
     let readme_content = render_template(&renderer, "project/README.md.tmpl", ctx)?;
     dry_run.plan_file(project_dir.join("README.md"), &readme_content);
+
+    let makefile_content = render_template(&renderer, "project/Makefile.tmpl", ctx)?;
+    dry_run.plan_file(project_dir.join("Makefile"), &makefile_content);
 
     let gitignore_content = render_template(&renderer, "project/gitignore.tmpl", ctx)?;
     dry_run.plan_file(project_dir.join(".gitignore"), &gitignore_content);
@@ -136,6 +140,11 @@ fn create_project_structure(
     let readme_content = render_template(&renderer, "project/README.md.tmpl", ctx)?;
     debug!("Writing README.md");
     write_file_protected(project_dir.join("README.md"), &readme_content, opts)?;
+
+    // Render and write Makefile
+    let makefile_content = render_template(&renderer, "project/Makefile.tmpl", ctx)?;
+    debug!("Writing Makefile");
+    write_file_protected(project_dir.join("Makefile"), &makefile_content, opts)?;
 
     // Render and write .gitignore
     let gitignore_content = render_template(&renderer, "project/gitignore.tmpl", ctx)?;
@@ -206,6 +215,7 @@ mod tests {
         assert!(temp.path().join("test-operator").exists());
         assert!(temp.path().join("test-operator/Cargo.toml").exists());
         assert!(temp.path().join("test-operator/README.md").exists());
+        assert!(temp.path().join("test-operator/Makefile").exists());
         assert!(temp.path().join("test-operator/.gitignore").exists());
         assert!(temp.path().join("test-operator/src/main.rs").exists());
         assert!(temp.path().join("test-operator/src/lib.rs").exists());
@@ -314,6 +324,7 @@ mod tests {
         assert!(paths.contains(&project_dir.join("src")));
         assert!(paths.contains(&project_dir.join("Cargo.toml")));
         assert!(paths.contains(&project_dir.join("README.md")));
+        assert!(paths.contains(&project_dir.join("Makefile")));
         assert!(paths.contains(&project_dir.join(".gitignore")));
         assert!(paths.contains(&project_dir.join("src/main.rs")));
     }
