@@ -1,0 +1,188 @@
+//! Prometheus metrics for the operator
+//!
+//! This module provides metrics collection and exposition via HTTP.
+
+use std::net::SocketAddr;
+
+use prometheus::{Encoder, Registry, TextEncoder};
+use prometheus::{Counter, CounterVec, Histogram, HistogramOpts, HistogramVec, Opts};
+use tokio::net::TcpListener;
+use tracing::{error, info};
+
+/// Metrics registry and collectors
+pub struct Metrics {
+    pub registry: Registry,
+    /// Total number of reconciliations
+    pub reconciliations_total: CounterVec,
+    /// Number of reconciliation errors
+    pub reconciliation_errors_total: CounterVec,
+    /// Duration of reconciliations in seconds
+    pub reconciliation_duration_seconds: HistogramVec,
+}
+
+impl Default for Metrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Metrics {
+    /// Create a new metrics instance with default collectors
+    pub fn new() -> Self {
+        let registry = Registry::new();
+
+        let reconciliations_total = CounterVec::new(
+            Opts::new(
+                "reconciliations_total",
+                "Total number of reconciliations performed",
+            ),
+            &["controller", "result"],
+        )
+        .expect("metric can be created");
+
+        let reconciliation_errors_total = CounterVec::new(
+            Opts::new(
+                "reconciliation_errors_total",
+                "Total number of reconciliation errors",
+            ),
+            &["controller", "error_type"],
+        )
+        .expect("metric can be created");
+
+        let reconciliation_duration_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "reconciliation_duration_seconds",
+                "Duration of reconciliations in seconds",
+            )
+            .buckets(vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+            &["controller"],
+        )
+        .expect("metric can be created");
+
+        registry
+            .register(Box::new(reconciliations_total.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(reconciliation_errors_total.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(reconciliation_duration_seconds.clone()))
+            .expect("metric can be registered");
+
+        Self {
+            registry,
+            reconciliations_total,
+            reconciliation_errors_total,
+            reconciliation_duration_seconds,
+        }
+    }
+
+    /// Record a successful reconciliation
+    pub fn record_reconciliation(&self, controller: &str, duration_secs: f64) {
+        self.reconciliations_total
+            .with_label_values(&[controller, "success"])
+            .inc();
+        self.reconciliation_duration_seconds
+            .with_label_values(&[controller])
+            .observe(duration_secs);
+    }
+
+    /// Record a failed reconciliation
+    pub fn record_reconciliation_error(&self, controller: &str, error_type: &str) {
+        self.reconciliations_total
+            .with_label_values(&[controller, "error"])
+            .inc();
+        self.reconciliation_errors_total
+            .with_label_values(&[controller, error_type])
+            .inc();
+    }
+
+    /// Encode metrics in Prometheus text format
+    pub fn encode(&self) -> String {
+        let encoder = TextEncoder::new();
+        let metric_families = self.registry.gather();
+        let mut buffer = Vec::new();
+        encoder.encode(&metric_families, &mut buffer).unwrap();
+        String::from_utf8(buffer).unwrap()
+    }
+}
+
+/// Start the metrics HTTP server
+///
+/// This spawns a background task that serves metrics on the specified port.
+pub async fn serve_metrics(metrics: std::sync::Arc<Metrics>, port: u16) {
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+
+    let listener = match TcpListener::bind(addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            error!("Failed to bind metrics server to {}: {}", addr, e);
+            return;
+        }
+    };
+
+    info!("Metrics server listening on http://{}/metrics", addr);
+
+    loop {
+        let (stream, _) = match listener.accept().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                error!("Failed to accept connection: {}", e);
+                continue;
+            }
+        };
+
+        let metrics = metrics.clone();
+        tokio::spawn(async move {
+            handle_request(stream, metrics).await;
+        });
+    }
+}
+
+async fn handle_request(
+    mut stream: tokio::net::TcpStream,
+    metrics: std::sync::Arc<Metrics>,
+) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let mut buffer = [0; 1024];
+    if stream.read(&mut buffer).await.is_err() {
+        return;
+    }
+
+    let request = String::from_utf8_lossy(&buffer);
+
+    // Simple routing - only respond to GET /metrics
+    let response = if request.starts_with("GET /metrics") {
+        let body = metrics.encode();
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        )
+    } else if request.starts_with("GET /health") || request.starts_with("GET /healthz") {
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nok".to_string()
+    } else {
+        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".to_string()
+    };
+
+    let _ = stream.write_all(response.as_bytes()).await;
+}
+
+/// Initialize and return a new Metrics instance
+///
+/// Call this once at startup and pass the result to your controllers.
+pub fn init() -> std::sync::Arc<Metrics> {
+    std::sync::Arc::new(Metrics::new())
+}
+
+/// Start the metrics server with the default port ({{metrics_port}})
+///
+/// # Example
+/// ```ignore
+/// let metrics = metrics::init();
+/// tokio::spawn(metrics::run(metrics.clone()));
+/// ```
+pub async fn run(metrics: std::sync::Arc<Metrics>) {
+    serve_metrics(metrics, {{metrics_port}}).await;
+}

@@ -2,7 +2,7 @@
 
 use clap::Parser;
 use kubegen::cli::{AddCommands, Cli, Commands};
-use kubegen::commands::{execute_add_crd, execute_new};
+use kubegen::commands::{execute_add_crd, execute_add_metrics, execute_new};
 use tracing::{debug, error, info};
 
 fn main() {
@@ -17,12 +17,7 @@ fn main() {
         Commands::New(args) => execute_new(&args),
         Commands::Add(add_cmd) => match add_cmd {
             AddCommands::Crd(args) => execute_add_crd(&args),
-            AddCommands::Metrics(args) => {
-                info!("Adding metrics support");
-                debug!(port = args.port, dry_run = args.dry_run, "Metrics settings");
-                // TODO: Implement metrics generation
-                Ok(())
-            }
+            AddCommands::Metrics(args) => execute_add_metrics(&args),
             AddCommands::Webhook(args) => {
                 info!("Adding webhook for: {}", args.kind);
                 debug!(
