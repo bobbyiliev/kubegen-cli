@@ -1,0 +1,70 @@
+# {{project_name}}
+
+A Kubernetes operator built with [kube-rs](https://kube.rs/).
+
+## Prerequisites
+
+- Rust 1.75 or later
+- kubectl configured with cluster access
+- Docker (for building container images)
+
+## Building
+
+```bash
+cargo build --release
+```
+
+## Running Locally
+
+```bash
+# Run against your current kubectl context
+cargo run
+```
+
+## Testing
+
+```bash
+cargo test
+```
+
+## Deployment
+
+### Building the Docker Image
+
+```bash
+docker build -t {{project_name}}:latest .
+```
+
+### Deploying to Kubernetes
+
+```bash
+# Apply CRDs
+kubectl apply -f manifests/crds/
+
+# Deploy the operator
+kubectl apply -f manifests/deployment.yaml
+```
+
+## Development
+
+### Adding a New CRD
+
+```bash
+kubegen add crd MyCrd --group {{domain}}
+```
+
+### Project Structure
+
+```
+{{project_name}}/
+├── Cargo.toml
+├── src/
+│   ├── main.rs      # Entry point
+│   ├── lib.rs       # Library exports
+│   └── error.rs     # Error types
+└── manifests/       # Kubernetes manifests
+```
+
+## License
+
+This project is licensed under the Apache License 2.0.
