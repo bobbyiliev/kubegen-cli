@@ -172,3 +172,43 @@ fn test_kubegen_new_cargo_toml_content() {
     assert!(cargo_content.contains("kube"));
     assert!(cargo_content.contains("tokio"));
 }
+
+/// Test that generated project compiles successfully with cargo build
+///
+/// This test is marked as ignored by default because it requires network access
+/// to download dependencies and takes longer to run. Run with:
+/// `cargo test --test integration_new -- --ignored`
+#[test]
+#[ignore]
+fn test_generated_project_compiles() {
+    let temp = TempDir::new().expect("Failed to create temp directory");
+
+    // Generate project
+    let output = Command::new(env!("CARGO_BIN_EXE_kubegen"))
+        .args(["new", "compile-test", "--domain", "example.com"])
+        .current_dir(temp.path())
+        .output()
+        .expect("Failed to execute kubegen");
+
+    assert!(
+        output.status.success(),
+        "kubegen new failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let project_dir = temp.path().join("compile-test");
+
+    // Run cargo check (faster than cargo build, still validates compilation)
+    let check_output = Command::new("cargo")
+        .args(["check"])
+        .current_dir(&project_dir)
+        .output()
+        .expect("Failed to run cargo check");
+
+    assert!(
+        check_output.status.success(),
+        "Generated project failed to compile:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&check_output.stdout),
+        String::from_utf8_lossy(&check_output.stderr)
+    );
+}
