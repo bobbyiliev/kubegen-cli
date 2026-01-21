@@ -74,6 +74,7 @@ fn get_paths_to_create(project_dir: &Path) -> Vec<std::path::PathBuf> {
         project_dir.to_path_buf(),
         project_dir.join("src"),
         project_dir.join("Cargo.toml"),
+        project_dir.join("README.md"),
         project_dir.join("src/main.rs"),
         project_dir.join("src/lib.rs"),
         project_dir.join("src/error.rs"),
@@ -92,6 +93,9 @@ fn execute_dry_run(project_dir: &Path, ctx: &TemplateContext) -> Result<()> {
 
     let cargo_content = render_template(&renderer, "project/Cargo.toml.tmpl", ctx)?;
     dry_run.plan_file(project_dir.join("Cargo.toml"), &cargo_content);
+
+    let readme_content = render_template(&renderer, "project/README.md.tmpl", ctx)?;
+    dry_run.plan_file(project_dir.join("README.md"), &readme_content);
 
     let main_content = render_template(&renderer, "project/main.rs.tmpl", ctx)?;
     dry_run.plan_file(project_dir.join("src/main.rs"), &main_content);
@@ -123,6 +127,11 @@ fn create_project_structure(
     let cargo_content = render_template(&renderer, "project/Cargo.toml.tmpl", ctx)?;
     debug!("Writing Cargo.toml");
     write_file_protected(project_dir.join("Cargo.toml"), &cargo_content, opts)?;
+
+    // Render and write README.md
+    let readme_content = render_template(&renderer, "project/README.md.tmpl", ctx)?;
+    debug!("Writing README.md");
+    write_file_protected(project_dir.join("README.md"), &readme_content, opts)?;
 
     // Render and write main.rs
     let main_content = render_template(&renderer, "project/main.rs.tmpl", ctx)?;
@@ -187,6 +196,7 @@ mod tests {
         assert!(result.is_ok());
         assert!(temp.path().join("test-operator").exists());
         assert!(temp.path().join("test-operator/Cargo.toml").exists());
+        assert!(temp.path().join("test-operator/README.md").exists());
         assert!(temp.path().join("test-operator/src/main.rs").exists());
         assert!(temp.path().join("test-operator/src/lib.rs").exists());
         assert!(temp.path().join("test-operator/src/error.rs").exists());
@@ -293,6 +303,7 @@ mod tests {
         assert!(paths.contains(&project_dir.to_path_buf()));
         assert!(paths.contains(&project_dir.join("src")));
         assert!(paths.contains(&project_dir.join("Cargo.toml")));
+        assert!(paths.contains(&project_dir.join("README.md")));
         assert!(paths.contains(&project_dir.join("src/main.rs")));
     }
 
