@@ -183,11 +183,8 @@ fn render_template(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
+    use crate::commands::test_utils::CWD_LOCK;
     use tempfile::TempDir;
-
-    // Mutex to serialize tests that change the current directory
-    static CWD_MUTEX: Mutex<()> = Mutex::new(());
 
     fn make_args(name: &str) -> NewArgs {
         NewArgs {
@@ -201,7 +198,7 @@ mod tests {
 
     #[test]
     fn test_execute_new_creates_project() {
-        let _lock = CWD_MUTEX.lock().unwrap();
+        let _lock = CWD_LOCK.lock().unwrap();
         let temp = TempDir::new().unwrap();
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
@@ -224,7 +221,7 @@ mod tests {
 
     #[test]
     fn test_execute_new_cargo_toml_content() {
-        let _lock = CWD_MUTEX.lock().unwrap();
+        let _lock = CWD_LOCK.lock().unwrap();
         let temp = TempDir::new().unwrap();
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
@@ -241,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_execute_new_dry_run() {
-        let _lock = CWD_MUTEX.lock().unwrap();
+        let _lock = CWD_LOCK.lock().unwrap();
         let temp = TempDir::new().unwrap();
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
@@ -259,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_execute_new_fails_existing_without_force() {
-        let _lock = CWD_MUTEX.lock().unwrap();
+        let _lock = CWD_LOCK.lock().unwrap();
         let temp = TempDir::new().unwrap();
         let project_dir = temp.path().join("existing-project");
 
@@ -279,7 +276,7 @@ mod tests {
 
     #[test]
     fn test_execute_new_with_force_overwrites() {
-        let _lock = CWD_MUTEX.lock().unwrap();
+        let _lock = CWD_LOCK.lock().unwrap();
         let temp = TempDir::new().unwrap();
         let project_dir = temp.path().join("force-test");
 

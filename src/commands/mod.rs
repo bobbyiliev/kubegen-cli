@@ -4,6 +4,8 @@
 
 mod crd;
 mod new;
+#[cfg(test)]
+mod test_utils;
 
 pub use crd::execute_add_crd;
 pub use new::execute_new;
