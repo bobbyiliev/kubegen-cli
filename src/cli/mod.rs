@@ -137,7 +137,7 @@ pub struct WebhookArgs {
     #[arg(short, long)]
     pub group: Option<String>,
 
-    /// Kubernetes service name for the webhook (defaults to <project>-webhook)
+    /// Kubernetes service name for the webhook (defaults to `<project>-webhook`)
     #[arg(long)]
     pub service_name: Option<String>,
 
