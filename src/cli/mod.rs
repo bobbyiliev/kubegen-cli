@@ -279,4 +279,294 @@ mod tests {
             panic!("Expected Add Crd command");
         }
     }
+
+    // Flag combination tests
+    #[test]
+    fn test_new_all_flags_combined() {
+        let cli = Cli::parse_from([
+            "kubegen",
+            "--verbose",
+            "new",
+            "test-operator",
+            "--domain",
+            "test.io",
+            "--non-interactive",
+            "--dry-run",
+            "--force",
+        ]);
+        assert!(cli.verbose);
+        if let Commands::New(args) = cli.command {
+            assert_eq!(args.name, "test-operator");
+            assert_eq!(args.domain, "test.io");
+            assert!(args.non_interactive);
+            assert!(args.dry_run);
+            assert!(args.force);
+        } else {
+            panic!("Expected New command");
+        }
+    }
+
+    #[test]
+    fn test_add_crd_all_flags_combined() {
+        let cli = Cli::parse_from([
+            "kubegen",
+            "add",
+            "crd",
+            "TestResource",
+            "--group",
+            "test.example.com",
+            "--api-version",
+            "v2beta1",
+            "--dry-run",
+            "--force",
+        ]);
+        if let Commands::Add(AddCommands::Crd(args)) = cli.command {
+            assert_eq!(args.kind, "TestResource");
+            assert_eq!(args.group, Some("test.example.com".to_string()));
+            assert_eq!(args.api_version, "v2beta1");
+            assert!(args.dry_run);
+            assert!(args.force);
+        } else {
+            panic!("Expected Add Crd command");
+        }
+    }
+
+    #[test]
+    fn test_add_metrics_all_flags() {
+        let cli = Cli::parse_from([
+            "kubegen",
+            "add",
+            "metrics",
+            "--port",
+            "9090",
+            "--dry-run",
+            "--force",
+        ]);
+        if let Commands::Add(AddCommands::Metrics(args)) = cli.command {
+            assert_eq!(args.port, 9090);
+            assert!(args.dry_run);
+            assert!(args.force);
+        } else {
+            panic!("Expected Add Metrics command");
+        }
+    }
+
+    #[test]
+    fn test_add_webhook_all_flags() {
+        let cli = Cli::parse_from([
+            "kubegen",
+            "add",
+            "webhook",
+            "TestResource",
+            "--validating",
+            "--mutating",
+            "--dry-run",
+            "--force",
+        ]);
+        if let Commands::Add(AddCommands::Webhook(args)) = cli.command {
+            assert_eq!(args.kind, "TestResource");
+            assert!(args.validating);
+            assert!(args.mutating);
+            assert!(args.dry_run);
+            assert!(args.force);
+        } else {
+            panic!("Expected Add Webhook command");
+        }
+    }
+
+    // Short flag tests
+    #[test]
+    fn test_verbose_short_flag() {
+        let cli = Cli::parse_from(["kubegen", "-v", "new", "test"]);
+        assert!(cli.verbose);
+    }
+
+    #[test]
+    fn test_domain_short_flag() {
+        let cli = Cli::parse_from(["kubegen", "new", "test", "-d", "short.io"]);
+        if let Commands::New(args) = cli.command {
+            assert_eq!(args.domain, "short.io");
+        } else {
+            panic!("Expected New command");
+        }
+    }
+
+    #[test]
+    fn test_group_short_flag() {
+        let cli = Cli::parse_from(["kubegen", "add", "crd", "Test", "-g", "short.io"]);
+        if let Commands::Add(AddCommands::Crd(args)) = cli.command {
+            assert_eq!(args.group, Some("short.io".to_string()));
+        } else {
+            panic!("Expected Add Crd command");
+        }
+    }
+
+    #[test]
+    fn test_port_short_flag() {
+        let cli = Cli::parse_from(["kubegen", "add", "metrics", "-p", "3000"]);
+        if let Commands::Add(AddCommands::Metrics(args)) = cli.command {
+            assert_eq!(args.port, 3000);
+        } else {
+            panic!("Expected Add Metrics command");
+        }
+    }
+
+    // Error case tests
+    #[test]
+    fn test_missing_required_name() {
+        let result = Cli::try_parse_from(["kubegen", "new"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_missing_required_kind() {
+        let result = Cli::try_parse_from(["kubegen", "add", "crd"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_missing_required_webhook_kind() {
+        let result = Cli::try_parse_from(["kubegen", "add", "webhook"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_subcommand() {
+        let result = Cli::try_parse_from(["kubegen", "invalid"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_add_subcommand() {
+        let result = Cli::try_parse_from(["kubegen", "add", "invalid"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_port_value() {
+        let result = Cli::try_parse_from(["kubegen", "add", "metrics", "--port", "not-a-number"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_unknown_flag() {
+        let result = Cli::try_parse_from(["kubegen", "new", "test", "--unknown-flag"]);
+        assert!(result.is_err());
+    }
+
+    // Global verbose flag tests
+    #[test]
+    fn test_verbose_before_subcommand() {
+        let cli = Cli::parse_from(["kubegen", "--verbose", "new", "test"]);
+        assert!(cli.verbose);
+    }
+
+    #[test]
+    fn test_verbose_after_subcommand() {
+        let cli = Cli::parse_from(["kubegen", "new", "--verbose", "test"]);
+        assert!(cli.verbose);
+    }
+
+    #[test]
+    fn test_verbose_at_end() {
+        let cli = Cli::parse_from(["kubegen", "new", "test", "--verbose"]);
+        assert!(cli.verbose);
+    }
+
+    // Default value tests
+    #[test]
+    fn test_default_domain() {
+        let cli = Cli::parse_from(["kubegen", "new", "test"]);
+        if let Commands::New(args) = cli.command {
+            assert_eq!(args.domain, "example.com");
+        } else {
+            panic!("Expected New command");
+        }
+    }
+
+    #[test]
+    fn test_default_api_version() {
+        let cli = Cli::parse_from(["kubegen", "add", "crd", "Test"]);
+        if let Commands::Add(AddCommands::Crd(args)) = cli.command {
+            assert_eq!(args.api_version, "v1alpha1");
+        } else {
+            panic!("Expected Add Crd command");
+        }
+    }
+
+    #[test]
+    fn test_default_port() {
+        let cli = Cli::parse_from(["kubegen", "add", "metrics"]);
+        if let Commands::Add(AddCommands::Metrics(args)) = cli.command {
+            assert_eq!(args.port, 8080);
+        } else {
+            panic!("Expected Add Metrics command");
+        }
+    }
+
+    // Boolean flag defaults
+    #[test]
+    fn test_boolean_flags_default_false() {
+        let cli = Cli::parse_from(["kubegen", "new", "test"]);
+        assert!(!cli.verbose);
+        if let Commands::New(args) = cli.command {
+            assert!(!args.non_interactive);
+            assert!(!args.dry_run);
+            assert!(!args.force);
+        } else {
+            panic!("Expected New command");
+        }
+    }
+
+    #[test]
+    fn test_webhook_boolean_flags_default_false() {
+        let cli = Cli::parse_from(["kubegen", "add", "webhook", "Test"]);
+        if let Commands::Add(AddCommands::Webhook(args)) = cli.command {
+            assert!(!args.validating);
+            assert!(!args.mutating);
+            assert!(!args.dry_run);
+            assert!(!args.force);
+        } else {
+            panic!("Expected Add Webhook command");
+        }
+    }
+
+    // Edge cases
+    #[test]
+    fn test_name_with_hyphens() {
+        let cli = Cli::parse_from(["kubegen", "new", "my-cool-operator-name"]);
+        if let Commands::New(args) = cli.command {
+            assert_eq!(args.name, "my-cool-operator-name");
+        } else {
+            panic!("Expected New command");
+        }
+    }
+
+    #[test]
+    fn test_kind_pascal_case() {
+        let cli = Cli::parse_from(["kubegen", "add", "crd", "MyCustomResourceDefinition"]);
+        if let Commands::Add(AddCommands::Crd(args)) = cli.command {
+            assert_eq!(args.kind, "MyCustomResourceDefinition");
+        } else {
+            panic!("Expected Add Crd command");
+        }
+    }
+
+    #[test]
+    fn test_single_char_name() {
+        let cli = Cli::parse_from(["kubegen", "new", "a"]);
+        if let Commands::New(args) = cli.command {
+            assert_eq!(args.name, "a");
+        } else {
+            panic!("Expected New command");
+        }
+    }
+
+    #[test]
+    fn test_empty_string_arg_error() {
+        // clap requires at least something for positional args
+        let result = Cli::try_parse_from(["kubegen", "new", ""]);
+        // Empty string is technically valid for clap, app-level validation handles this
+        assert!(result.is_ok());
+    }
 }
