@@ -1,79 +1,212 @@
 //! Controller for {{kind}} resources
+//!
+//! This module implements the reconciliation loop for {{kind}} custom resources.
+//! The reconciler handles create, update, and delete events with proper error
+//! handling, status updates, and requeue logic.
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::Utc;
 use futures::StreamExt;
 use kube::{
     api::{Api, Patch, PatchParams},
     client::Client,
     runtime::{
         controller::{Action, Controller},
+        finalizer::{finalizer, Event as FinalizerEvent},
         watcher,
     },
     ResourceExt,
 };
-use tracing::{error, info, instrument};
+use serde_json::json;
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::{{kind_snake}}::types::{{kind}};
 use crate::error::{Error, Result};
 
+/// Finalizer name for {{kind}} resources
+pub const FINALIZER: &str = "{{group}}/{{kind_snake}}-finalizer";
+
+/// Default requeue interval for successful reconciliations
+const DEFAULT_REQUEUE_INTERVAL: Duration = Duration::from_secs(300);
+
+/// Requeue interval after an error
+const ERROR_REQUEUE_INTERVAL: Duration = Duration::from_secs(60);
+
+/// Short requeue interval for resources being deleted
+const DELETE_REQUEUE_INTERVAL: Duration = Duration::from_secs(5);
+
 /// Context for the {{kind}} controller
 pub struct Context {
+    /// Kubernetes client
     pub client: Client,
 }
 
 /// Reconcile a {{kind}} resource
+///
+/// This function is called whenever a {{kind}} resource is created, updated, or deleted.
+/// It uses finalizers to ensure proper cleanup of external resources.
 #[instrument(skip(ctx, resource), fields(name = %resource.name_any(), namespace = resource.namespace()))]
 async fn reconcile(resource: Arc<{{kind}}>, ctx: Arc<Context>) -> Result<Action> {
     let name = resource.name_any();
     let namespace = resource.namespace().unwrap_or_default();
 
-    info!("Reconciling {{kind}} {}/{}", namespace, name);
+    debug!("Starting reconciliation for {{kind}} {}/{}", namespace, name);
 
     let api: Api<{{kind}}> = Api::namespaced(ctx.client.clone(), &namespace);
 
-    // TODO: Add your reconciliation logic here
+    // Use finalizer to handle cleanup on deletion
+    finalizer(&api, FINALIZER, resource, |event| async {
+        match event {
+            FinalizerEvent::Apply(resource) => reconcile_resource(&resource, &ctx, &api).await,
+            FinalizerEvent::Cleanup(resource) => cleanup_resource(&resource, &ctx).await,
+        }
+    })
+    .await
+    .map_err(|e| Error::FinalizerError(Box::new(e)))
+}
 
-    // Update status
-    let status = serde_json::json!({
+/// Reconcile a {{kind}} resource (apply phase)
+///
+/// This is called for create and update events.
+async fn reconcile_resource(
+    resource: &{{kind}},
+    ctx: &Context,
+    api: &Api<{{kind}}>,
+) -> Result<Action> {
+    let name = resource.name_any();
+    let namespace = resource.namespace().unwrap_or_default();
+
+    info!("Reconciling {{kind}} {}/{}", namespace, name);
+
+    // TODO: Add your reconciliation logic here
+    // Examples:
+    // - Create or update owned resources (Deployments, Services, etc.)
+    // - Sync with external systems
+    // - Validate current state matches desired state
+
+    // Update status to reflect current state
+    update_status(api, &name, "Ready", "True", "ReconcileSucceeded", "Resource reconciled successfully").await?;
+
+    debug!("Successfully reconciled {{kind}} {}/{}", namespace, name);
+    Ok(Action::requeue(DEFAULT_REQUEUE_INTERVAL))
+}
+
+/// Cleanup resources when a {{kind}} is deleted
+///
+/// This is called when the resource has a deletion timestamp and we need
+/// to clean up any external resources before removing the finalizer.
+async fn cleanup_resource(resource: &{{kind}}, _ctx: &Context) -> Result<Action> {
+    let name = resource.name_any();
+    let namespace = resource.namespace().unwrap_or_default();
+
+    info!("Cleaning up {{kind}} {}/{}", namespace, name);
+
+    // TODO: Add your cleanup logic here
+    // Examples:
+    // - Delete external resources
+    // - Remove entries from external databases
+    // - Clean up cloud resources
+
+    debug!("Cleanup completed for {{kind}} {}/{}", namespace, name);
+    Ok(Action::await_change())
+}
+
+/// Update the status of a {{kind}} resource with a condition
+async fn update_status(
+    api: &Api<{{kind}}>,
+    name: &str,
+    condition_type: &str,
+    status: &str,
+    reason: &str,
+    message: &str,
+) -> Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let status_patch = json!({
         "status": {
-            "ready_replicas": 0,
-            "message": "Reconciled successfully"
+            "conditions": [{
+                "type": condition_type,
+                "status": status,
+                "reason": reason,
+                "message": message,
+                "lastTransitionTime": now,
+                "observedGeneration": 1
+            }],
+            "observedGeneration": 1
         }
     });
 
     api.patch_status(
-        &name,
+        name,
         &PatchParams::apply("{{project_name}}"),
-        &Patch::Merge(&status),
+        &Patch::Merge(&status_patch),
     )
     .await
     .map_err(Error::KubeError)?;
 
-    Ok(Action::requeue(Duration::from_secs(300)))
+    Ok(())
 }
 
 /// Handle errors during reconciliation
+///
+/// This function determines the requeue strategy based on the error type.
 fn error_policy(resource: Arc<{{kind}}>, error: &Error, _ctx: Arc<Context>) -> Action {
-    error!(
-        "Reconciliation error for {}: {:?}",
-        resource.name_any(),
-        error
-    );
-    Action::requeue(Duration::from_secs(60))
+    let name = resource.name_any();
+    let namespace = resource.namespace().unwrap_or_default();
+
+    // Log error with appropriate level based on error type
+    match error {
+        Error::KubeError(e) => {
+            error!(
+                namespace = %namespace,
+                name = %name,
+                error = %e,
+                "Kubernetes API error during reconciliation"
+            );
+        }
+        Error::FinalizerError(e) => {
+            warn!(
+                namespace = %namespace,
+                name = %name,
+                error = ?e,
+                "Finalizer error during reconciliation"
+            );
+        }
+        _ => {
+            error!(
+                namespace = %namespace,
+                name = %name,
+                error = ?error,
+                "Reconciliation error"
+            );
+        }
+    }
+
+    // Determine requeue interval based on deletion state
+    if resource.metadata.deletion_timestamp.is_some() {
+        // Resource is being deleted, retry more frequently
+        Action::requeue(DELETE_REQUEUE_INTERVAL)
+    } else {
+        Action::requeue(ERROR_REQUEUE_INTERVAL)
+    }
 }
 
 /// Start the {{kind}} controller
+///
+/// This sets up the controller with the watcher configuration and starts
+/// the reconciliation loop.
 pub async fn run(client: Client) -> Result<()> {
     let api: Api<{{kind}}> = Api::all(client.clone());
     let ctx = Arc::new(Context { client });
+
+    info!("Starting {{kind}} controller");
 
     Controller::new(api, watcher::Config::default())
         .run(reconcile, error_policy, ctx)
         .for_each(|res| async move {
             match res {
-                Ok(o) => info!("Reconciled {:?}", o),
+                Ok(o) => debug!("Reconciled {:?}", o),
                 Err(e) => error!("Reconcile failed: {:?}", e),
             }
         })

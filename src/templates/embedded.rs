@@ -131,6 +131,17 @@ mod tests {
     }
 
     #[test]
+    fn test_get_template_project_error() {
+        let content = get_template("project/error.rs.tmpl");
+        assert!(content.is_ok());
+        let content = content.unwrap();
+        assert!(content.contains("{{project_name}}"));
+        assert!(content.contains("KubeError"));
+        assert!(content.contains("FinalizerError"));
+        assert!(content.contains("thiserror"));
+    }
+
+    #[test]
     fn test_get_template_crd_types() {
         let content = get_template("crd/types.rs.tmpl");
         assert!(content.is_ok());
@@ -147,6 +158,14 @@ mod tests {
         let content = content.unwrap();
         assert!(content.contains("{{kind}}"));
         assert!(content.contains("reconcile"));
+        // Check for enhanced reconciler features
+        assert!(content.contains("FINALIZER"));
+        assert!(content.contains("finalizer"));
+        assert!(content.contains("cleanup_resource"));
+        assert!(content.contains("update_status"));
+        assert!(content.contains("error_policy"));
+        assert!(content.contains("DEFAULT_REQUEUE_INTERVAL"));
+        assert!(content.contains("ERROR_REQUEUE_INTERVAL"));
     }
 
     #[test]
