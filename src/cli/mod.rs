@@ -133,6 +133,18 @@ pub struct WebhookArgs {
     #[arg(long)]
     pub mutating: bool,
 
+    /// API group for the webhook (e.g., mygroup.example.com)
+    #[arg(short, long)]
+    pub group: Option<String>,
+
+    /// Kubernetes service name for the webhook (defaults to <project>-webhook)
+    #[arg(long)]
+    pub service_name: Option<String>,
+
+    /// Namespace where the webhook service runs (defaults to system namespace)
+    #[arg(long, default_value = "default")]
+    pub namespace: String,
+
     /// Show what would be created without actually creating files
     #[arg(long)]
     pub dry_run: bool,
@@ -360,6 +372,12 @@ mod tests {
             "TestResource",
             "--validating",
             "--mutating",
+            "--group",
+            "mygroup.example.com",
+            "--service-name",
+            "my-webhook",
+            "--namespace",
+            "my-namespace",
             "--dry-run",
             "--force",
         ]);
@@ -367,6 +385,9 @@ mod tests {
             assert_eq!(args.kind, "TestResource");
             assert!(args.validating);
             assert!(args.mutating);
+            assert_eq!(args.group, Some("mygroup.example.com".to_string()));
+            assert_eq!(args.service_name, Some("my-webhook".to_string()));
+            assert_eq!(args.namespace, "my-namespace");
             assert!(args.dry_run);
             assert!(args.force);
         } else {
@@ -524,6 +545,9 @@ mod tests {
         if let Commands::Add(AddCommands::Webhook(args)) = cli.command {
             assert!(!args.validating);
             assert!(!args.mutating);
+            assert!(args.group.is_none());
+            assert!(args.service_name.is_none());
+            assert_eq!(args.namespace, "default");
             assert!(!args.dry_run);
             assert!(!args.force);
         } else {

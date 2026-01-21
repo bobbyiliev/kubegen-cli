@@ -1,0 +1,32 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{kind_snake}}-validating-webhook
+  annotations:
+    cert-manager.io/inject-ca-from: {{namespace}}/{{service_name}}-cert
+spec:
+  webhooks:
+    - name: validate.{{kind_snake}}.{{group}}
+      admissionReviewVersions:
+        - v1
+      clientConfig:
+        service:
+          name: {{service_name}}
+          namespace: {{namespace}}
+          path: /validate/{{kind_snake}}
+          port: 443
+      failurePolicy: Fail
+      matchPolicy: Equivalent
+      rules:
+        - apiGroups:
+            - {{group}}
+          apiVersions:
+            - "*"
+          operations:
+            - CREATE
+            - UPDATE
+          resources:
+            - {{plural}}
+          scope: "*"
+      sideEffects: None
+      timeoutSeconds: 10

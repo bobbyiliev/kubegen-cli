@@ -15,7 +15,7 @@ use crate::fs::{
 use crate::templates::{
     get_template, SimpleRenderer, StringTemplate, TemplateContext, TemplateRenderer,
 };
-use crate::validation::{self, to_snake_case};
+use crate::validation::{self, pluralize, to_snake_case};
 
 /// Execute the `kubegen add webhook` command
 pub fn execute_add_webhook(args: &WebhookArgs) -> Result<()> {
@@ -34,24 +34,42 @@ pub fn execute_add_webhook(args: &WebhookArgs) -> Result<()> {
 
     info!("Adding webhook for: {}", args.kind);
 
+    // Get project name from Cargo.toml for default service name
+    let project_name = get_project_name()?;
+
     // Build template context
     let kind_snake = to_snake_case(&args.kind);
+    let plural = pluralize(&kind_snake);
+    let group = args
+        .group
+        .clone()
+        .unwrap_or_else(|| format!("{}.example.com", kind_snake));
+    let service_name = args
+        .service_name
+        .clone()
+        .unwrap_or_else(|| format!("{}-webhook", project_name));
+
     let mut ctx = TemplateContext::new();
     ctx.set("kind", &args.kind);
     ctx.set("kind_snake", &kind_snake);
+    ctx.set("plural", &plural);
+    ctx.set("group", &group);
+    ctx.set("service_name", &service_name);
+    ctx.set("namespace", &args.namespace);
     ctx.set("with_validating", args.validating.to_string());
     ctx.set("with_mutating", args.mutating.to_string());
 
     let webhook_dir = Path::new("src").join("webhook");
+    let manifests_dir = Path::new("manifests").join("webhook");
 
     if args.dry_run {
-        return execute_dry_run(&webhook_dir, &ctx, args);
+        return execute_dry_run(&webhook_dir, &manifests_dir, &ctx, args);
     }
 
     let write_opts = WriteOptions::with_force(args.force);
 
     // Check for conflicts before proceeding
-    let paths_to_create = get_paths_to_create(&webhook_dir, args);
+    let paths_to_create = get_paths_to_create(&webhook_dir, &manifests_dir, args);
     let conflicts = check_conflicts(&paths_to_create, &write_opts);
     if !conflicts.is_empty() {
         return Err(crate::error::KubegenError::ValidationError(
@@ -60,13 +78,14 @@ pub fn execute_add_webhook(args: &WebhookArgs) -> Result<()> {
     }
 
     // Create webhook module structure
-    create_webhook_structure(&webhook_dir, &ctx, &write_opts, args)?;
+    create_webhook_structure(&webhook_dir, &manifests_dir, &ctx, &write_opts, args)?;
 
     info!("Webhook support added successfully!");
     info!("Next steps:");
     info!("  1. Add 'pub mod webhook;' to src/lib.rs");
     info!("  2. Configure webhook server in main.rs");
-    info!("  3. Run 'cargo build' to verify");
+    info!("  3. Apply manifests with 'kubectl apply -f manifests/webhook/'");
+    info!("  4. Run 'cargo build' to verify");
 
     Ok(())
 }
@@ -90,25 +109,63 @@ fn validate_project_structure() -> Result<()> {
     Ok(())
 }
 
+/// Get the project name from Cargo.toml
+fn get_project_name() -> Result<String> {
+    let cargo_toml = Path::new("Cargo.toml");
+    let content = std::fs::read_to_string(cargo_toml).map_err(|e| {
+        crate::error::KubegenError::ValidationError(format!("Failed to read Cargo.toml: {}", e))
+    })?;
+
+    // Simple parsing to extract package name
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with("name") {
+            if let Some(value) = line.split('=').nth(1) {
+                let name = value.trim().trim_matches('"').trim_matches('\'');
+                return Ok(name.to_string());
+            }
+        }
+    }
+
+    Err(crate::error::KubegenError::ValidationError(
+        "Could not find package name in Cargo.toml".to_string(),
+    ))
+}
+
 /// Get list of paths that will be created
-fn get_paths_to_create(webhook_dir: &Path, args: &WebhookArgs) -> Vec<std::path::PathBuf> {
+fn get_paths_to_create(
+    webhook_dir: &Path,
+    manifests_dir: &Path,
+    args: &WebhookArgs,
+) -> Vec<std::path::PathBuf> {
     let mut paths = vec![webhook_dir.to_path_buf(), webhook_dir.join("mod.rs")];
 
     if args.validating {
         paths.push(webhook_dir.join("validating.rs"));
+        paths.push(manifests_dir.join("validating-webhook-config.yaml"));
     }
     if args.mutating {
         paths.push(webhook_dir.join("mutating.rs"));
+        paths.push(manifests_dir.join("mutating-webhook-config.yaml"));
     }
+
+    // Add manifests directory
+    paths.push(manifests_dir.to_path_buf());
 
     paths
 }
 
 /// Execute in dry-run mode
-fn execute_dry_run(webhook_dir: &Path, ctx: &TemplateContext, args: &WebhookArgs) -> Result<()> {
+fn execute_dry_run(
+    webhook_dir: &Path,
+    manifests_dir: &Path,
+    ctx: &TemplateContext,
+    args: &WebhookArgs,
+) -> Result<()> {
     let mut dry_run = DryRunContext::new();
 
     dry_run.plan_dir(webhook_dir);
+    dry_run.plan_dir(manifests_dir);
 
     let renderer = SimpleRenderer::new();
 
@@ -118,11 +175,28 @@ fn execute_dry_run(webhook_dir: &Path, ctx: &TemplateContext, args: &WebhookArgs
     if args.validating {
         let validating_content = render_template(&renderer, "webhook/validating.rs.tmpl", ctx)?;
         dry_run.plan_file(webhook_dir.join("validating.rs"), &validating_content);
+
+        let validating_config = render_template(
+            &renderer,
+            "webhook/validating-webhook-config.yaml.tmpl",
+            ctx,
+        )?;
+        dry_run.plan_file(
+            manifests_dir.join("validating-webhook-config.yaml"),
+            &validating_config,
+        );
     }
 
     if args.mutating {
         let mutating_content = render_template(&renderer, "webhook/mutating.rs.tmpl", ctx)?;
         dry_run.plan_file(webhook_dir.join("mutating.rs"), &mutating_content);
+
+        let mutating_config =
+            render_template(&renderer, "webhook/mutating-webhook-config.yaml.tmpl", ctx)?;
+        dry_run.plan_file(
+            manifests_dir.join("mutating-webhook-config.yaml"),
+            &mutating_config,
+        );
     }
 
     println!("{}", dry_run.format_preview());
@@ -132,6 +206,7 @@ fn execute_dry_run(webhook_dir: &Path, ctx: &TemplateContext, args: &WebhookArgs
 /// Create the webhook module structure
 fn create_webhook_structure(
     webhook_dir: &Path,
+    manifests_dir: &Path,
     ctx: &TemplateContext,
     opts: &WriteOptions,
     args: &WebhookArgs,
@@ -141,6 +216,10 @@ fn create_webhook_structure(
     // Create webhook directory
     debug!("Creating webhook directory: {}", webhook_dir.display());
     create_dir_all(webhook_dir)?;
+
+    // Create manifests directory
+    debug!("Creating manifests directory: {}", manifests_dir.display());
+    create_dir_all(manifests_dir)?;
 
     // Render and write mod.rs
     let mod_content = render_template(&renderer, "webhook/mod.rs.tmpl", ctx)?;
@@ -152,6 +231,19 @@ fn create_webhook_structure(
         let validating_content = render_template(&renderer, "webhook/validating.rs.tmpl", ctx)?;
         debug!("Writing validating.rs");
         write_file_protected(webhook_dir.join("validating.rs"), &validating_content, opts)?;
+
+        // Write validating webhook configuration manifest
+        let validating_config = render_template(
+            &renderer,
+            "webhook/validating-webhook-config.yaml.tmpl",
+            ctx,
+        )?;
+        debug!("Writing validating-webhook-config.yaml");
+        write_file_protected(
+            manifests_dir.join("validating-webhook-config.yaml"),
+            &validating_config,
+            opts,
+        )?;
     }
 
     // Render and write mutating.rs if requested
@@ -159,6 +251,16 @@ fn create_webhook_structure(
         let mutating_content = render_template(&renderer, "webhook/mutating.rs.tmpl", ctx)?;
         debug!("Writing mutating.rs");
         write_file_protected(webhook_dir.join("mutating.rs"), &mutating_content, opts)?;
+
+        // Write mutating webhook configuration manifest
+        let mutating_config =
+            render_template(&renderer, "webhook/mutating-webhook-config.yaml.tmpl", ctx)?;
+        debug!("Writing mutating-webhook-config.yaml");
+        write_file_protected(
+            manifests_dir.join("mutating-webhook-config.yaml"),
+            &mutating_config,
+            opts,
+        )?;
     }
 
     Ok(())
@@ -186,6 +288,9 @@ mod tests {
             kind: kind.to_string(),
             validating,
             mutating,
+            group: None,
+            service_name: None,
+            namespace: "default".to_string(),
             dry_run: false,
             force: false,
         }
@@ -218,6 +323,15 @@ mod tests {
         assert!(temp.path().join("src/webhook/mod.rs").exists());
         assert!(temp.path().join("src/webhook/validating.rs").exists());
         assert!(!temp.path().join("src/webhook/mutating.rs").exists());
+        // Check manifests
+        assert!(temp
+            .path()
+            .join("manifests/webhook/validating-webhook-config.yaml")
+            .exists());
+        assert!(!temp
+            .path()
+            .join("manifests/webhook/mutating-webhook-config.yaml")
+            .exists());
     }
 
     #[test]
@@ -237,6 +351,15 @@ mod tests {
         assert!(temp.path().join("src/webhook/mod.rs").exists());
         assert!(!temp.path().join("src/webhook/validating.rs").exists());
         assert!(temp.path().join("src/webhook/mutating.rs").exists());
+        // Check manifests
+        assert!(!temp
+            .path()
+            .join("manifests/webhook/validating-webhook-config.yaml")
+            .exists());
+        assert!(temp
+            .path()
+            .join("manifests/webhook/mutating-webhook-config.yaml")
+            .exists());
     }
 
     #[test]
@@ -255,6 +378,15 @@ mod tests {
         assert!(temp.path().join("src/webhook/mod.rs").exists());
         assert!(temp.path().join("src/webhook/validating.rs").exists());
         assert!(temp.path().join("src/webhook/mutating.rs").exists());
+        // Check manifests
+        assert!(temp
+            .path()
+            .join("manifests/webhook/validating-webhook-config.yaml")
+            .exists());
+        assert!(temp
+            .path()
+            .join("manifests/webhook/mutating-webhook-config.yaml")
+            .exists());
     }
 
     #[test]
@@ -297,6 +429,9 @@ mod tests {
             kind: "invalid-kind".to_string(),
             validating: true,
             mutating: false,
+            group: None,
+            service_name: None,
+            namespace: "default".to_string(),
             dry_run: false,
             force: false,
         };
@@ -370,22 +505,70 @@ mod tests {
     #[test]
     fn test_get_paths_to_create_validating_only() {
         let webhook_dir = Path::new("src/webhook");
+        let manifests_dir = Path::new("manifests/webhook");
         let args = make_args("Test", true, false);
-        let paths = get_paths_to_create(webhook_dir, &args);
+        let paths = get_paths_to_create(webhook_dir, manifests_dir, &args);
 
         assert!(paths.contains(&webhook_dir.to_path_buf()));
         assert!(paths.contains(&webhook_dir.join("mod.rs")));
         assert!(paths.contains(&webhook_dir.join("validating.rs")));
         assert!(!paths.contains(&webhook_dir.join("mutating.rs")));
+        assert!(paths.contains(&manifests_dir.join("validating-webhook-config.yaml")));
+        assert!(!paths.contains(&manifests_dir.join("mutating-webhook-config.yaml")));
     }
 
     #[test]
     fn test_get_paths_to_create_both() {
         let webhook_dir = Path::new("src/webhook");
+        let manifests_dir = Path::new("manifests/webhook");
         let args = make_args("Test", true, true);
-        let paths = get_paths_to_create(webhook_dir, &args);
+        let paths = get_paths_to_create(webhook_dir, manifests_dir, &args);
 
         assert!(paths.contains(&webhook_dir.join("validating.rs")));
         assert!(paths.contains(&webhook_dir.join("mutating.rs")));
+        assert!(paths.contains(&manifests_dir.join("validating-webhook-config.yaml")));
+        assert!(paths.contains(&manifests_dir.join("mutating-webhook-config.yaml")));
+    }
+
+    #[test]
+    fn test_manifest_content() {
+        let _lock = CWD_LOCK.lock().unwrap();
+        let temp = TempDir::new().unwrap();
+        setup_project(&temp);
+
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let mut args = make_args("MyResource", true, true);
+        args.group = Some("mygroup.example.com".to_string());
+        args.service_name = Some("my-webhook".to_string());
+        args.namespace = "my-namespace".to_string();
+        let result = execute_add_webhook(&args);
+        std::env::set_current_dir(&original_dir).unwrap();
+
+        assert!(result.is_ok());
+
+        // Check validating config content
+        let validating_config = std::fs::read_to_string(
+            temp.path()
+                .join("manifests/webhook/validating-webhook-config.yaml"),
+        )
+        .unwrap();
+        assert!(validating_config.contains("ValidatingWebhookConfiguration"));
+        assert!(validating_config.contains("mygroup.example.com"));
+        assert!(validating_config.contains("my-webhook"));
+        assert!(validating_config.contains("my-namespace"));
+        assert!(validating_config.contains("my_resources")); // plural
+
+        // Check mutating config content
+        let mutating_config = std::fs::read_to_string(
+            temp.path()
+                .join("manifests/webhook/mutating-webhook-config.yaml"),
+        )
+        .unwrap();
+        assert!(mutating_config.contains("MutatingWebhookConfiguration"));
+        assert!(mutating_config.contains("mygroup.example.com"));
+        assert!(mutating_config.contains("my-webhook"));
+        assert!(mutating_config.contains("my-namespace"));
     }
 }

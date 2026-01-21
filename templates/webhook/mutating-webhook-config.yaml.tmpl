@@ -1,0 +1,33 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{kind_snake}}-mutating-webhook
+  annotations:
+    cert-manager.io/inject-ca-from: {{namespace}}/{{service_name}}-cert
+spec:
+  webhooks:
+    - name: mutate.{{kind_snake}}.{{group}}
+      admissionReviewVersions:
+        - v1
+      clientConfig:
+        service:
+          name: {{service_name}}
+          namespace: {{namespace}}
+          path: /mutate/{{kind_snake}}
+          port: 443
+      failurePolicy: Fail
+      matchPolicy: Equivalent
+      reinvocationPolicy: Never
+      rules:
+        - apiGroups:
+            - {{group}}
+          apiVersions:
+            - "*"
+          operations:
+            - CREATE
+            - UPDATE
+          resources:
+            - {{plural}}
+          scope: "*"
+      sideEffects: None
+      timeoutSeconds: 10
