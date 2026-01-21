@@ -8,6 +8,7 @@ pub mod error;
 pub mod fs;
 pub mod logging;
 pub mod prompts;
+pub mod templates;
 pub mod validation;
 
 // Re-export commonly used types
