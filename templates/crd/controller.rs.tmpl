@@ -5,10 +5,13 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use kube::{
-    api::{Api, ListParams, Patch, PatchParams},
+    api::{Api, Patch, PatchParams},
     client::Client,
-    runtime::controller::{Action, Controller},
-    Resource, ResourceExt,
+    runtime::{
+        controller::{Action, Controller},
+        watcher,
+    },
+    ResourceExt,
 };
 use tracing::{error, info, instrument};
 
@@ -66,7 +69,7 @@ pub async fn run(client: Client) -> Result<()> {
     let api: Api<{{kind}}> = Api::all(client.clone());
     let ctx = Arc::new(Context { client });
 
-    Controller::new(api, ListParams::default())
+    Controller::new(api, watcher::Config::default())
         .run(reconcile, error_policy, ctx)
         .for_each(|res| async move {
             match res {
