@@ -1,0 +1,69 @@
+//! Admission webhook module for {{kind}}
+//!
+//! This module provides validating and/or mutating admission webhooks.
+
+use kube::core::{
+    admission::{AdmissionRequest, AdmissionResponse, AdmissionReview},
+    DynamicObject,
+};
+use tracing::{error, info};
+use warp::{Filter, Reply};
+
+pub mod validating;
+pub mod mutating;
+
+/// Start the webhook server
+///
+/// Listens on the specified address for admission review requests.
+pub async fn run_server(addr: impl Into<std::net::SocketAddr>) {
+    let addr = addr.into();
+
+    let validate = warp::path("validate")
+        .and(warp::path("{{kind_snake}}"))
+        .and(warp::body::json())
+        .and_then(handle_validate);
+
+    let mutate = warp::path("mutate")
+        .and(warp::path("{{kind_snake}}"))
+        .and(warp::body::json())
+        .and_then(handle_mutate);
+
+    let health = warp::path("healthz").map(|| "ok");
+
+    let routes = validate.or(mutate).or(health);
+
+    info!("Webhook server listening on {}", addr);
+    warp::serve(routes).run(addr).await;
+}
+
+async fn handle_validate(
+    review: AdmissionReview<DynamicObject>,
+) -> Result<impl Reply, warp::Rejection> {
+    let request: AdmissionRequest<DynamicObject> = match review.try_into() {
+        Ok(req) => req,
+        Err(e) => {
+            error!("Failed to parse admission request: {}", e);
+            return Ok(warp::reply::json(&AdmissionResponse::invalid(e.to_string()).into_review()));
+        }
+    };
+
+    info!("Validating {{kind}}: {}", request.name);
+    let response = validating::validate(request);
+    Ok(warp::reply::json(&response.into_review()))
+}
+
+async fn handle_mutate(
+    review: AdmissionReview<DynamicObject>,
+) -> Result<impl Reply, warp::Rejection> {
+    let request: AdmissionRequest<DynamicObject> = match review.try_into() {
+        Ok(req) => req,
+        Err(e) => {
+            error!("Failed to parse admission request: {}", e);
+            return Ok(warp::reply::json(&AdmissionResponse::invalid(e.to_string()).into_review()));
+        }
+    };
+
+    info!("Mutating {{kind}}: {}", request.name);
+    let response = mutating::mutate(request);
+    Ok(warp::reply::json(&response.into_review()))
+}

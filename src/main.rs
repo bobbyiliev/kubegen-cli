@@ -2,8 +2,8 @@
 
 use clap::Parser;
 use kubegen::cli::{AddCommands, Cli, Commands};
-use kubegen::commands::{execute_add_crd, execute_add_metrics, execute_new};
-use tracing::{debug, error, info};
+use kubegen::commands::{execute_add_crd, execute_add_metrics, execute_add_webhook, execute_new};
+use tracing::{debug, error};
 
 fn main() {
     let cli = Cli::parse();
@@ -18,17 +18,7 @@ fn main() {
         Commands::Add(add_cmd) => match add_cmd {
             AddCommands::Crd(args) => execute_add_crd(&args),
             AddCommands::Metrics(args) => execute_add_metrics(&args),
-            AddCommands::Webhook(args) => {
-                info!("Adding webhook for: {}", args.kind);
-                debug!(
-                    validating = args.validating,
-                    mutating = args.mutating,
-                    dry_run = args.dry_run,
-                    "Webhook settings"
-                );
-                // TODO: Implement webhook generation
-                Ok(())
-            }
+            AddCommands::Webhook(args) => execute_add_webhook(&args),
         },
     };
 
