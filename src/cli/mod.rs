@@ -59,6 +59,10 @@ pub struct NewArgs {
     /// Show what would be created without actually creating files
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Overwrite existing files without prompting
+    #[arg(short, long)]
+    pub force: bool,
 }
 
 /// Subcommands for the `add` command
@@ -92,6 +96,10 @@ pub struct CrdArgs {
     /// Show what would be created without actually creating files
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Overwrite existing files without prompting
+    #[arg(short, long)]
+    pub force: bool,
 }
 
 /// Arguments for the `add metrics` command
@@ -104,6 +112,10 @@ pub struct MetricsArgs {
     /// Show what would be created without actually creating files
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Overwrite existing files without prompting
+    #[arg(short, long)]
+    pub force: bool,
 }
 
 /// Arguments for the `add webhook` command
@@ -124,6 +136,10 @@ pub struct WebhookArgs {
     /// Show what would be created without actually creating files
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Overwrite existing files without prompting
+    #[arg(short, long)]
+    pub force: bool,
 }
 
 #[cfg(test)]
@@ -230,6 +246,37 @@ mod tests {
             assert!(args.mutating);
         } else {
             panic!("Expected Add Webhook command");
+        }
+    }
+
+    #[test]
+    fn test_parse_new_with_force() {
+        let cli = Cli::parse_from(["kubegen", "new", "my-operator", "--force"]);
+        if let Commands::New(args) = cli.command {
+            assert!(args.force);
+            assert!(!args.dry_run);
+        } else {
+            panic!("Expected New command");
+        }
+    }
+
+    #[test]
+    fn test_parse_new_with_force_short() {
+        let cli = Cli::parse_from(["kubegen", "new", "my-operator", "-f"]);
+        if let Commands::New(args) = cli.command {
+            assert!(args.force);
+        } else {
+            panic!("Expected New command");
+        }
+    }
+
+    #[test]
+    fn test_parse_add_crd_with_force() {
+        let cli = Cli::parse_from(["kubegen", "add", "crd", "MyResource", "--force"]);
+        if let Commands::Add(AddCommands::Crd(args)) = cli.command {
+            assert!(args.force);
+        } else {
+            panic!("Expected Add Crd command");
         }
     }
 }
