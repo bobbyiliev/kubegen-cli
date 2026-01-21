@@ -1,21 +1,62 @@
 //! Admission webhook module for {{kind}}
 //!
-//! This module provides validating and/or mutating admission webhooks.
+//! This module provides validating and/or mutating admission webhooks
+//! with TLS support for secure communication with the Kubernetes API server.
 
 use kube::core::{
     admission::{AdmissionRequest, AdmissionResponse, AdmissionReview},
     DynamicObject,
 };
+use std::path::Path;
 use tracing::{error, info};
 use warp::{Filter, Reply};
 
-pub mod validating;
 pub mod mutating;
+pub mod validating;
 
-/// Start the webhook server
+/// TLS configuration for the webhook server
+pub struct TlsConfig {
+    /// Path to the TLS certificate file (PEM format)
+    pub cert_path: String,
+    /// Path to the TLS private key file (PEM format)
+    pub key_path: String,
+}
+
+impl TlsConfig {
+    /// Create a new TLS configuration
+    pub fn new(cert_path: impl Into<String>, key_path: impl Into<String>) -> Self {
+        Self {
+            cert_path: cert_path.into(),
+            key_path: key_path.into(),
+        }
+    }
+
+    /// Create TLS configuration from standard Kubernetes secret mount paths
+    ///
+    /// By default, cert-manager mounts certificates at `/tls/tls.crt` and `/tls/tls.key`
+    pub fn from_secret_mount(mount_path: impl AsRef<Path>) -> Self {
+        let mount = mount_path.as_ref();
+        Self {
+            cert_path: mount.join("tls.crt").to_string_lossy().into_owned(),
+            key_path: mount.join("tls.key").to_string_lossy().into_owned(),
+        }
+    }
+}
+
+impl Default for TlsConfig {
+    fn default() -> Self {
+        Self::from_secret_mount("/tls")
+    }
+}
+
+/// Start the webhook server with TLS
 ///
-/// Listens on the specified address for admission review requests.
-pub async fn run_server(addr: impl Into<std::net::SocketAddr>) {
+/// Listens on the specified address for admission review requests over HTTPS.
+///
+/// # Arguments
+/// * `addr` - The socket address to bind to (e.g., `([0, 0, 0, 0], 8443)`)
+/// * `tls_config` - TLS certificate and key configuration
+pub async fn run_server(addr: impl Into<std::net::SocketAddr>, tls_config: TlsConfig) {
     let addr = addr.into();
 
     let validate = warp::path("validate")
@@ -29,10 +70,42 @@ pub async fn run_server(addr: impl Into<std::net::SocketAddr>) {
         .and_then(handle_mutate);
 
     let health = warp::path("healthz").map(|| "ok");
+    let ready = warp::path("readyz").map(|| "ok");
 
-    let routes = validate.or(mutate).or(health);
+    let routes = validate.or(mutate).or(health).or(ready);
 
-    info!("Webhook server listening on {}", addr);
+    info!("Webhook server listening on https://{}", addr);
+    warp::serve(routes)
+        .tls()
+        .cert_path(&tls_config.cert_path)
+        .key_path(&tls_config.key_path)
+        .run(addr)
+        .await;
+}
+
+/// Start the webhook server without TLS (for local development only)
+///
+/// **Warning**: This should only be used for local development and testing.
+/// Production deployments must use TLS.
+pub async fn run_server_insecure(addr: impl Into<std::net::SocketAddr>) {
+    let addr = addr.into();
+
+    let validate = warp::path("validate")
+        .and(warp::path("{{kind_snake}}"))
+        .and(warp::body::json())
+        .and_then(handle_validate);
+
+    let mutate = warp::path("mutate")
+        .and(warp::path("{{kind_snake}}"))
+        .and(warp::body::json())
+        .and_then(handle_mutate);
+
+    let health = warp::path("healthz").map(|| "ok");
+    let ready = warp::path("readyz").map(|| "ok");
+
+    let routes = validate.or(mutate).or(health).or(ready);
+
+    info!("Webhook server listening on http://{} (INSECURE - development only)", addr);
     warp::serve(routes).run(addr).await;
 }
 
