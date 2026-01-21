@@ -597,4 +597,443 @@ kube = { version = "{{kube_version}}", features = ["runtime", "derive"] }
         let debug_str = format!("{:?}", renderer);
         assert!(debug_str.contains("SimpleRenderer"));
     }
+
+    // Additional variable substitution tests
+    #[test]
+    fn test_render_numeric_variable_name() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "{{var1}} and {{var2}}");
+        let mut ctx = TemplateContext::new();
+        ctx.set("var1", "first");
+        ctx.set("var2", "second");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "first and second");
+    }
+
+    #[test]
+    fn test_render_variable_at_start() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "{{prefix}}suffix");
+        let mut ctx = TemplateContext::new();
+        ctx.set("prefix", "pre_");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "pre_suffix");
+    }
+
+    #[test]
+    fn test_render_variable_at_end() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "prefix{{suffix}}");
+        let mut ctx = TemplateContext::new();
+        ctx.set("suffix", "_end");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "prefix_end");
+    }
+
+    #[test]
+    fn test_render_empty_value() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "before{{empty}}after");
+        let mut ctx = TemplateContext::new();
+        ctx.set("empty", "");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "beforeafter");
+    }
+
+    #[test]
+    fn test_render_value_with_newlines() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "content: {{multiline}}");
+        let mut ctx = TemplateContext::new();
+        ctx.set("multiline", "line1\nline2\nline3");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "content: line1\nline2\nline3");
+    }
+
+    #[test]
+    fn test_render_value_with_tabs() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "{{indented}}");
+        let mut ctx = TemplateContext::new();
+        ctx.set("indented", "\tfirst\n\tsecond");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "\tfirst\n\tsecond");
+    }
+
+    // Special character tests
+    #[test]
+    fn test_render_unicode_in_value() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "Hello, {{name}}!");
+        let mut ctx = TemplateContext::new();
+        ctx.set("name", "世界");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "Hello, 世界!");
+    }
+
+    #[test]
+    fn test_render_emoji_in_value() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "Status: {{status}}");
+        let mut ctx = TemplateContext::new();
+        ctx.set("status", "✅ OK");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "Status: ✅ OK");
+    }
+
+    #[test]
+    fn test_render_unicode_in_template() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "Привет, {{name}}! 你好!");
+        let mut ctx = TemplateContext::new();
+        ctx.set("name", "User");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "Привет, User! 你好!");
+    }
+
+    #[test]
+    fn test_render_backslash_in_value() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "Path: {{path}}");
+        let mut ctx = TemplateContext::new();
+        ctx.set("path", "C:\\Users\\test");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "Path: C:\\Users\\test");
+    }
+
+    #[test]
+    fn test_render_dollar_sign_in_value() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "Price: {{price}}");
+        let mut ctx = TemplateContext::new();
+        ctx.set("price", "$100");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "Price: $100");
+    }
+
+    #[test]
+    fn test_render_regex_like_value() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "Pattern: {{regex}}");
+        let mut ctx = TemplateContext::new();
+        ctx.set("regex", "^[a-z]+$");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "Pattern: ^[a-z]+$");
+    }
+
+    // Multiline template tests
+    #[test]
+    fn test_render_multiline_rust_code() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new(
+            "rust",
+            r#"fn {{function_name}}() {
+    println!("{{message}}");
+}
+"#,
+        );
+        let mut ctx = TemplateContext::new();
+        ctx.set("function_name", "hello");
+        ctx.set("message", "Hello, World!");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert!(result.contains("fn hello()"));
+        assert!(result.contains("println!(\"Hello, World!\")"));
+    }
+
+    #[test]
+    fn test_render_multiline_yaml() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new(
+            "yaml",
+            r#"apiVersion: {{api_version}}
+kind: {{kind}}
+metadata:
+  name: {{name}}
+  namespace: {{namespace}}
+"#,
+        );
+        let mut ctx = TemplateContext::new();
+        ctx.set("api_version", "v1");
+        ctx.set("kind", "ConfigMap");
+        ctx.set("name", "my-config");
+        ctx.set("namespace", "default");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert!(result.contains("apiVersion: v1"));
+        assert!(result.contains("kind: ConfigMap"));
+        assert!(result.contains("name: my-config"));
+    }
+
+    #[test]
+    fn test_render_multiline_preserves_indentation() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "    {{indent1}}\n        {{indent2}}");
+        let mut ctx = TemplateContext::new();
+        ctx.set("indent1", "level1");
+        ctx.set("indent2", "level2");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "    level1\n        level2");
+    }
+
+    #[test]
+    fn test_render_multiline_with_blank_lines() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "{{header}}\n\n{{body}}\n\n{{footer}}");
+        let mut ctx = TemplateContext::new();
+        ctx.set("header", "HEADER");
+        ctx.set("body", "BODY");
+        ctx.set("footer", "FOOTER");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "HEADER\n\nBODY\n\nFOOTER");
+    }
+
+    #[test]
+    fn test_render_windows_line_endings() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "{{a}}\r\n{{b}}\r\n");
+        let mut ctx = TemplateContext::new();
+        ctx.set("a", "line1");
+        ctx.set("b", "line2");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "line1\r\nline2\r\n");
+    }
+
+    // Multiple missing variables tests
+    #[test]
+    fn test_render_multiple_missing_non_strict() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "{{a}} {{b}} {{c}}");
+        let ctx = TemplateContext::new();
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "{{a}} {{b}} {{c}}");
+    }
+
+    #[test]
+    fn test_render_partial_missing_non_strict() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "{{found}} and {{missing}}");
+        let mut ctx = TemplateContext::new();
+        ctx.set("found", "VALUE");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "VALUE and {{missing}}");
+    }
+
+    #[test]
+    fn test_render_strict_error_includes_template_name() {
+        let renderer = SimpleRenderer::strict();
+        let tmpl = StringTemplate::new("my-template.rs", "{{missing}}");
+        let ctx = TemplateContext::new();
+
+        let result = renderer.render(&tmpl, &ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("my-template.rs"));
+    }
+
+    // Edge case error tests
+    #[test]
+    fn test_render_unclosed_at_eof() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "text {{var");
+        let ctx = TemplateContext::new();
+
+        let result = renderer.render(&tmpl, &ctx);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_render_only_opening_braces() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "{{");
+        let ctx = TemplateContext::new();
+
+        let result = renderer.render(&tmpl, &ctx);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_render_triple_braces() {
+        // {{{ starts variable parsing with first char being {
+        // So "{{{var}}}" parses as variable "{var" with trailing }
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "{{{var}}}");
+        let mut ctx = TemplateContext::new();
+        ctx.set("{var", "value");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "value}");
+    }
+
+    #[test]
+    fn test_render_brace_before_variable() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "prefix{ {{var}} }suffix");
+        let mut ctx = TemplateContext::new();
+        ctx.set("var", "value");
+
+        // Single brace before variable passes through
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "prefix{ value }suffix");
+    }
+
+    #[test]
+    fn test_render_whitespace_only_variable() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "{{   }}");
+        let ctx = TemplateContext::new();
+
+        let result = renderer.render(&tmpl, &ctx);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Empty variable"));
+    }
+
+    // Stress tests
+    #[test]
+    fn test_render_many_variables() {
+        let renderer = SimpleRenderer::new();
+        let mut template_str = String::new();
+        let mut ctx = TemplateContext::new();
+
+        for i in 0..50 {
+            template_str.push_str(&format!("{{{{var{}}}}}", i));
+            ctx.set(format!("var{}", i), format!("val{}", i));
+        }
+
+        let tmpl = StringTemplate::new("test", &template_str);
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+
+        for i in 0..50 {
+            assert!(result.contains(&format!("val{}", i)));
+        }
+    }
+
+    #[test]
+    fn test_render_long_variable_name() {
+        let renderer = SimpleRenderer::new();
+        let long_name = "a".repeat(100);
+        let tmpl = StringTemplate::new("test", format!("{{{{{}}}}}", long_name));
+        let mut ctx = TemplateContext::new();
+        ctx.set(&long_name, "value");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result, "value");
+    }
+
+    #[test]
+    fn test_render_long_value() {
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("test", "{{val}}");
+        let long_value = "x".repeat(10000);
+        let mut ctx = TemplateContext::new();
+        ctx.set("val", &long_value);
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(result.len(), 10000);
+    }
+
+    // Integration with embedded templates
+    #[test]
+    fn test_render_embedded_project_cargo() {
+        use super::embedded::get_template;
+
+        let content = get_template("project/Cargo.toml.tmpl").unwrap();
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("Cargo.toml", &content);
+
+        let mut ctx = TemplateContext::new();
+        ctx.set("project_name", "test-operator");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert!(result.contains("name = \"test-operator\""));
+        assert!(result.contains("[package]"));
+    }
+
+    #[test]
+    fn test_render_embedded_crd_types() {
+        use super::embedded::get_template;
+
+        let content = get_template("crd/types.rs.tmpl").unwrap();
+        let renderer = SimpleRenderer::new();
+        let tmpl = StringTemplate::new("types.rs", &content);
+
+        let mut ctx = TemplateContext::new();
+        ctx.set("kind", "MyResource");
+        ctx.set("group", "example.com");
+        ctx.set("version", "v1");
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert!(result.contains("MyResource"));
+        assert!(result.contains("example.com"));
+        assert!(result.contains("v1"));
+    }
+
+    #[test]
+    fn test_render_with_project_context() {
+        use super::context::ProjectContext;
+
+        let project = ProjectContext::builder()
+            .name("my-operator")
+            .group("example.com")
+            .version("v1")
+            .kind("MyResource")
+            .build()
+            .unwrap();
+
+        let ctx = project.to_template_context();
+        let tmpl = StringTemplate::new(
+            "test",
+            "Project: {{project_name}}, Kind: {{kind}}, Group: {{group}}",
+        );
+        let renderer = SimpleRenderer::new();
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(
+            result,
+            "Project: my-operator, Kind: MyResource, Group: example.com"
+        );
+    }
+
+    #[test]
+    fn test_render_with_crd_context() {
+        use super::context::CrdContext;
+
+        let crd = CrdContext::builder()
+            .group("apps.example.com")
+            .version("v1alpha1")
+            .kind("Database")
+            .with_controller(true)
+            .build()
+            .unwrap();
+
+        let ctx = crd.to_template_context();
+        let tmpl = StringTemplate::new(
+            "test",
+            "{{kind}} ({{group}}/{{version}}), controller: {{with_controller}}",
+        );
+        let renderer = SimpleRenderer::new();
+
+        let result = renderer.render(&tmpl, &ctx).unwrap();
+        assert_eq!(
+            result,
+            "Database (apps.example.com/v1alpha1), controller: true"
+        );
+    }
 }
