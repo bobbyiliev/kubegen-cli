@@ -4,10 +4,22 @@
 
 use clap::{Parser, Subcommand};
 
+/// Build version string with git hash and build date
+fn version_string() -> &'static str {
+    concat!(
+        env!("CARGO_PKG_VERSION"),
+        " (git: ",
+        env!("KUBEGEN_GIT_HASH"),
+        ", built: ",
+        env!("KUBEGEN_BUILD_DATE"),
+        ")"
+    )
+}
+
 /// kubegen - Kubernetes operator scaffolding tool for Rust
 #[derive(Parser, Debug)]
 #[command(name = "kubegen")]
-#[command(author, version, about, long_about = None)]
+#[command(author, version = version_string(), about, long_about = None)]
 #[command(propagate_version = true)]
 pub struct Cli {
     /// Enable verbose output
