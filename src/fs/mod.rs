@@ -181,6 +181,115 @@ pub fn ensure_not_exists<P: AsRef<Path>>(path: P) -> Result<()> {
     Ok(())
 }
 
+/// Options for file/directory write operations
+#[derive(Debug, Clone, Default)]
+pub struct WriteOptions {
+    /// Allow overwriting existing files/directories
+    pub force: bool,
+}
+
+impl WriteOptions {
+    /// Create options with force enabled
+    pub fn with_force(force: bool) -> Self {
+        Self { force }
+    }
+}
+
+/// Write content to a file with overwrite protection
+///
+/// # Arguments
+/// * `path` - The file path to write to
+/// * `content` - The content to write
+/// * `options` - Write options including force flag
+///
+/// # Errors
+/// Returns an error if the file exists and force is false, or if write fails
+pub fn write_file_protected<P: AsRef<Path>>(
+    path: P,
+    content: &str,
+    options: &WriteOptions,
+) -> Result<()> {
+    let path = path.as_ref();
+
+    if !options.force && path.is_file() {
+        return Err(KubegenError::FileExists {
+            path: path.to_path_buf(),
+        });
+    }
+
+    write_file(path, content)
+}
+
+/// Create a directory with overwrite protection
+///
+/// # Arguments
+/// * `path` - The directory path to create
+/// * `options` - Write options including force flag
+///
+/// # Errors
+/// Returns an error if the directory exists (as a file) and force is false
+pub fn create_dir_protected<P: AsRef<Path>>(path: P, options: &WriteOptions) -> Result<()> {
+    let path = path.as_ref();
+
+    // If path exists as a file (not directory), fail unless force
+    if path.is_file() {
+        if options.force {
+            // Remove the file so we can create a directory
+            fs::remove_file(path).map_err(|source| KubegenError::FileWrite {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        } else {
+            return Err(KubegenError::FileExists {
+                path: path.to_path_buf(),
+            });
+        }
+    }
+
+    // create_dir_all is idempotent for existing directories
+    create_dir_all(path)
+}
+
+/// Check multiple paths for conflicts before writing
+///
+/// # Arguments
+/// * `paths` - List of paths that will be created
+/// * `options` - Write options including force flag
+///
+/// # Returns
+/// List of paths that would be overwritten (empty if none or if force is true)
+pub fn check_conflicts<P: AsRef<Path>>(paths: &[P], options: &WriteOptions) -> Vec<PathBuf> {
+    if options.force {
+        return Vec::new();
+    }
+
+    paths
+        .iter()
+        .filter_map(|p| {
+            let path = p.as_ref();
+            if path.exists() {
+                Some(path.to_path_buf())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Format conflict paths for display in error message
+pub fn format_conflicts(conflicts: &[PathBuf]) -> String {
+    if conflicts.is_empty() {
+        return String::new();
+    }
+
+    let mut msg = String::from("The following paths already exist:\n");
+    for path in conflicts {
+        msg.push_str(&format!("  - {}\n", path.display()));
+    }
+    msg.push_str("\nUse --force to overwrite existing files.");
+    msg
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -378,5 +487,157 @@ mod tests {
         assert!(preview.contains("line 10"));
         assert!(preview.contains("more lines"));
         assert!(!preview.contains("line 11"));
+    }
+
+    // Overwrite protection tests
+    #[test]
+    fn test_write_options_default() {
+        let opts = WriteOptions::default();
+        assert!(!opts.force);
+    }
+
+    #[test]
+    fn test_write_options_with_force() {
+        let opts = WriteOptions::with_force(true);
+        assert!(opts.force);
+
+        let opts = WriteOptions::with_force(false);
+        assert!(!opts.force);
+    }
+
+    #[test]
+    fn test_write_file_protected_new_file() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("new.txt");
+        let opts = WriteOptions::default();
+
+        let result = write_file_protected(&file_path, "content", &opts);
+        assert!(result.is_ok());
+        assert_eq!(read_to_string(&file_path).unwrap(), "content");
+    }
+
+    #[test]
+    fn test_write_file_protected_fails_existing() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("existing.txt");
+        write_file(&file_path, "original").unwrap();
+
+        let opts = WriteOptions::default();
+        let result = write_file_protected(&file_path, "new content", &opts);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("File already exists"));
+        // Original content should be unchanged
+        assert_eq!(read_to_string(&file_path).unwrap(), "original");
+    }
+
+    #[test]
+    fn test_write_file_protected_with_force() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("existing.txt");
+        write_file(&file_path, "original").unwrap();
+
+        let opts = WriteOptions::with_force(true);
+        let result = write_file_protected(&file_path, "new content", &opts);
+        assert!(result.is_ok());
+        assert_eq!(read_to_string(&file_path).unwrap(), "new content");
+    }
+
+    #[test]
+    fn test_create_dir_protected_new_dir() {
+        let temp = TempDir::new().unwrap();
+        let dir_path = temp.path().join("newdir");
+        let opts = WriteOptions::default();
+
+        let result = create_dir_protected(&dir_path, &opts);
+        assert!(result.is_ok());
+        assert!(dir_exists(&dir_path));
+    }
+
+    #[test]
+    fn test_create_dir_protected_existing_dir() {
+        let temp = TempDir::new().unwrap();
+        let dir_path = temp.path().join("existingdir");
+        create_dir_all(&dir_path).unwrap();
+
+        let opts = WriteOptions::default();
+        // Should succeed - directories are idempotent
+        let result = create_dir_protected(&dir_path, &opts);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_create_dir_protected_fails_file_exists() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("file_not_dir");
+        write_file(&path, "content").unwrap();
+
+        let opts = WriteOptions::default();
+        let result = create_dir_protected(&path, &opts);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("File already exists"));
+    }
+
+    #[test]
+    fn test_check_conflicts_no_conflicts() {
+        let temp = TempDir::new().unwrap();
+        let paths = vec![temp.path().join("new1.txt"), temp.path().join("new2.txt")];
+        let opts = WriteOptions::default();
+
+        let conflicts = check_conflicts(&paths, &opts);
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn test_check_conflicts_with_existing() {
+        let temp = TempDir::new().unwrap();
+        let existing = temp.path().join("existing.txt");
+        write_file(&existing, "content").unwrap();
+
+        let paths = vec![temp.path().join("new.txt"), existing.clone()];
+        let opts = WriteOptions::default();
+
+        let conflicts = check_conflicts(&paths, &opts);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0], existing);
+    }
+
+    #[test]
+    fn test_check_conflicts_with_force() {
+        let temp = TempDir::new().unwrap();
+        let existing = temp.path().join("existing.txt");
+        write_file(&existing, "content").unwrap();
+
+        let paths = vec![existing];
+        let opts = WriteOptions::with_force(true);
+
+        // With force, conflicts are ignored
+        let conflicts = check_conflicts(&paths, &opts);
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn test_format_conflicts_empty() {
+        let conflicts: Vec<PathBuf> = vec![];
+        let msg = format_conflicts(&conflicts);
+        assert!(msg.is_empty());
+    }
+
+    #[test]
+    fn test_format_conflicts_with_paths() {
+        let conflicts = vec![
+            PathBuf::from("/tmp/file1.txt"),
+            PathBuf::from("/tmp/file2.txt"),
+        ];
+        let msg = format_conflicts(&conflicts);
+        assert!(msg.contains("already exist"));
+        assert!(msg.contains("/tmp/file1.txt"));
+        assert!(msg.contains("/tmp/file2.txt"));
+        assert!(msg.contains("--force"));
     }
 }
