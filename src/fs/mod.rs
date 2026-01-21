@@ -640,4 +640,348 @@ mod tests {
         assert!(msg.contains("/tmp/file2.txt"));
         assert!(msg.contains("--force"));
     }
+
+    // Additional edge case tests for filesystem helpers
+
+    // File write edge cases
+    #[test]
+    fn test_write_file_empty_content() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("empty.txt");
+
+        write_file(&file_path, "").unwrap();
+        assert!(file_exists(&file_path));
+        assert_eq!(read_to_string(&file_path).unwrap(), "");
+    }
+
+    #[test]
+    fn test_write_file_unicode_content() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("unicode.txt");
+
+        let content = "Hello 世界! 🎉 Привет мир!";
+        write_file(&file_path, content).unwrap();
+        assert_eq!(read_to_string(&file_path).unwrap(), content);
+    }
+
+    #[test]
+    fn test_write_file_multiline_content() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("multiline.txt");
+
+        let content = "line 1\nline 2\nline 3\n";
+        write_file(&file_path, content).unwrap();
+        assert_eq!(read_to_string(&file_path).unwrap(), content);
+    }
+
+    #[test]
+    fn test_write_file_overwrites_existing() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("overwrite.txt");
+
+        write_file(&file_path, "original").unwrap();
+        write_file(&file_path, "updated").unwrap();
+        assert_eq!(read_to_string(&file_path).unwrap(), "updated");
+    }
+
+    #[test]
+    fn test_write_file_deeply_nested_path() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("a/b/c/d/e/f/deep.txt");
+
+        write_file(&file_path, "deep content").unwrap();
+        assert!(file_exists(&file_path));
+    }
+
+    // Directory edge cases
+    #[test]
+    fn test_create_dir_all_idempotent() {
+        let temp = TempDir::new().unwrap();
+        let dir_path = temp.path().join("mydir");
+
+        create_dir_all(&dir_path).unwrap();
+        create_dir_all(&dir_path).unwrap(); // Should not fail
+        assert!(dir_exists(&dir_path));
+    }
+
+    #[test]
+    fn test_dir_exists_for_file_returns_false() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("file.txt");
+        write_file(&file_path, "content").unwrap();
+
+        // A file is not a directory
+        assert!(!dir_exists(&file_path));
+    }
+
+    #[test]
+    fn test_file_exists_for_dir_returns_false() {
+        let temp = TempDir::new().unwrap();
+        let dir_path = temp.path().join("mydir");
+        create_dir_all(&dir_path).unwrap();
+
+        // A directory is not a file
+        assert!(!file_exists(&dir_path));
+    }
+
+    // Path edge cases
+    #[test]
+    fn test_write_file_with_spaces_in_path() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("path with spaces/file name.txt");
+
+        write_file(&file_path, "content").unwrap();
+        assert!(file_exists(&file_path));
+    }
+
+    #[test]
+    fn test_write_file_with_special_chars_in_name() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("file-with_special.chars.txt");
+
+        write_file(&file_path, "content").unwrap();
+        assert!(file_exists(&file_path));
+    }
+
+    // Dry-run context edge cases
+    #[test]
+    fn test_dry_run_format_preview_empty_content() {
+        let mut ctx = DryRunContext::new();
+        ctx.plan_file("/tmp/empty.txt", "");
+
+        let preview = ctx.format_preview();
+        assert!(preview.contains("CREATE FILE"));
+        assert!(preview.contains("/tmp/empty.txt"));
+    }
+
+    #[test]
+    fn test_dry_run_operations_order_preserved() {
+        let mut ctx = DryRunContext::new();
+        ctx.plan_dir("/first");
+        ctx.plan_file("/second", "");
+        ctx.plan_dir("/third");
+
+        let ops = ctx.operations();
+        assert_eq!(ops.len(), 3);
+        assert_eq!(ops[0].path().to_str().unwrap(), "/first");
+        assert_eq!(ops[1].path().to_str().unwrap(), "/second");
+        assert_eq!(ops[2].path().to_str().unwrap(), "/third");
+    }
+
+    #[test]
+    fn test_planned_operation_equality() {
+        let op1 = PlannedOperation::CreateFile {
+            path: PathBuf::from("/tmp/test.txt"),
+            content: "content".to_string(),
+        };
+        let op2 = PlannedOperation::CreateFile {
+            path: PathBuf::from("/tmp/test.txt"),
+            content: "content".to_string(),
+        };
+        let op3 = PlannedOperation::CreateFile {
+            path: PathBuf::from("/tmp/other.txt"),
+            content: "content".to_string(),
+        };
+
+        assert_eq!(op1, op2);
+        assert_ne!(op1, op3);
+    }
+
+    #[test]
+    fn test_planned_operation_dir_equality() {
+        let op1 = PlannedOperation::CreateDir {
+            path: PathBuf::from("/tmp/dir"),
+        };
+        let op2 = PlannedOperation::CreateDir {
+            path: PathBuf::from("/tmp/dir"),
+        };
+        let op3 = PlannedOperation::CreateFile {
+            path: PathBuf::from("/tmp/dir"),
+            content: String::new(),
+        };
+
+        assert_eq!(op1, op2);
+        assert_ne!(op1, op3);
+    }
+
+    // Conflict checking edge cases
+    #[test]
+    fn test_check_conflicts_empty_paths() {
+        let paths: Vec<PathBuf> = vec![];
+        let opts = WriteOptions::default();
+
+        let conflicts = check_conflicts(&paths, &opts);
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn test_check_conflicts_with_directory() {
+        let temp = TempDir::new().unwrap();
+        let dir_path = temp.path().join("existingdir");
+        create_dir_all(&dir_path).unwrap();
+
+        let paths = vec![dir_path.clone()];
+        let opts = WriteOptions::default();
+
+        let conflicts = check_conflicts(&paths, &opts);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0], dir_path);
+    }
+
+    #[test]
+    fn test_check_conflicts_mixed_files_and_dirs() {
+        let temp = TempDir::new().unwrap();
+        let existing_file = temp.path().join("file.txt");
+        let existing_dir = temp.path().join("dir");
+        let new_file = temp.path().join("new.txt");
+
+        write_file(&existing_file, "content").unwrap();
+        create_dir_all(&existing_dir).unwrap();
+
+        let paths = vec![existing_file.clone(), existing_dir.clone(), new_file];
+        let opts = WriteOptions::default();
+
+        let conflicts = check_conflicts(&paths, &opts);
+        assert_eq!(conflicts.len(), 2);
+        assert!(conflicts.contains(&existing_file));
+        assert!(conflicts.contains(&existing_dir));
+    }
+
+    // Format conflicts edge cases
+    #[test]
+    fn test_format_conflicts_single_path() {
+        let conflicts = vec![PathBuf::from("/single/path.txt")];
+        let msg = format_conflicts(&conflicts);
+        assert!(msg.contains("/single/path.txt"));
+        assert!(msg.contains("--force"));
+    }
+
+    #[test]
+    fn test_format_conflicts_with_special_chars() {
+        let conflicts = vec![PathBuf::from("/path with spaces/file.txt")];
+        let msg = format_conflicts(&conflicts);
+        assert!(msg.contains("/path with spaces/file.txt"));
+    }
+
+    // Protected write edge cases
+    #[test]
+    fn test_write_file_protected_creates_parent_dirs() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("new/nested/file.txt");
+        let opts = WriteOptions::default();
+
+        let result = write_file_protected(&file_path, "content", &opts);
+        assert!(result.is_ok());
+        assert!(file_exists(&file_path));
+    }
+
+    #[test]
+    fn test_create_dir_protected_with_force_removes_file() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("was_file_now_dir");
+        write_file(&path, "content").unwrap();
+
+        let opts = WriteOptions::with_force(true);
+        let result = create_dir_protected(&path, &opts);
+        assert!(result.is_ok());
+        assert!(dir_exists(&path));
+        assert!(!file_exists(&path));
+    }
+
+    #[test]
+    fn test_create_dir_protected_nested_with_force() {
+        let temp = TempDir::new().unwrap();
+        let dir_path = temp.path().join("a/b/c");
+        let opts = WriteOptions::with_force(true);
+
+        let result = create_dir_protected(&dir_path, &opts);
+        assert!(result.is_ok());
+        assert!(dir_exists(&dir_path));
+    }
+
+    // Error message validation
+    #[test]
+    fn test_read_error_contains_path() {
+        let result = read_to_string("/nonexistent/path/file.txt");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("/nonexistent/path/file.txt"));
+    }
+
+    #[test]
+    fn test_ensure_not_exists_error_contains_path() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("exists.txt");
+        write_file(&file_path, "content").unwrap();
+
+        let result = ensure_not_exists(&file_path);
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("exists.txt"));
+    }
+
+    // WriteOptions clone and debug
+    #[test]
+    fn test_write_options_clone() {
+        let opts1 = WriteOptions::with_force(true);
+        let opts2 = opts1.clone();
+        assert!(opts2.force);
+    }
+
+    #[test]
+    fn test_write_options_debug() {
+        let opts = WriteOptions::with_force(true);
+        let debug_str = format!("{:?}", opts);
+        assert!(debug_str.contains("WriteOptions"));
+        assert!(debug_str.contains("force"));
+    }
+
+    // DryRunContext debug
+    #[test]
+    fn test_dry_run_context_debug() {
+        let ctx = DryRunContext::new();
+        let debug_str = format!("{:?}", ctx);
+        assert!(debug_str.contains("DryRunContext"));
+    }
+
+    // PlannedOperation clone
+    #[test]
+    fn test_planned_operation_clone() {
+        let op = PlannedOperation::CreateFile {
+            path: PathBuf::from("/tmp/test.txt"),
+            content: "content".to_string(),
+        };
+        let cloned = op.clone();
+        assert_eq!(op, cloned);
+    }
+
+    // Format preview with exactly 10 lines (boundary case)
+    #[test]
+    fn test_format_preview_exactly_10_lines() {
+        let mut ctx = DryRunContext::new();
+        let content: String = (1..=10)
+            .map(|i| format!("line {}", i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        ctx.plan_file("/tmp/test.txt", &content);
+
+        let preview = ctx.format_preview();
+        assert!(preview.contains("line 1"));
+        assert!(preview.contains("line 10"));
+        assert!(!preview.contains("more lines"));
+    }
+
+    // Format preview with 11 lines (one more than limit)
+    #[test]
+    fn test_format_preview_11_lines() {
+        let mut ctx = DryRunContext::new();
+        let content: String = (1..=11)
+            .map(|i| format!("line {}", i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        ctx.plan_file("/tmp/test.txt", &content);
+
+        let preview = ctx.format_preview();
+        assert!(preview.contains("line 10"));
+        assert!(preview.contains("1 more lines"));
+        assert!(!preview.contains("line 11"));
+    }
 }
