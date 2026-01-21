@@ -3,9 +3,97 @@
 //! Provides safe filesystem helpers with error context and dry-run support.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::error::{KubegenError, Result};
+
+/// A planned filesystem operation for dry-run mode
+#[derive(Debug, Clone, PartialEq)]
+pub enum PlannedOperation {
+    /// Create a file with the given content
+    CreateFile { path: PathBuf, content: String },
+    /// Create a directory
+    CreateDir { path: PathBuf },
+}
+
+impl PlannedOperation {
+    /// Get the path affected by this operation
+    pub fn path(&self) -> &Path {
+        match self {
+            PlannedOperation::CreateFile { path, .. } => path,
+            PlannedOperation::CreateDir { path } => path,
+        }
+    }
+}
+
+/// Context for dry-run mode that collects planned operations
+#[derive(Debug, Default)]
+pub struct DryRunContext {
+    operations: Vec<PlannedOperation>,
+}
+
+impl DryRunContext {
+    /// Create a new dry-run context
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record a planned file creation
+    pub fn plan_file<P: AsRef<Path>>(&mut self, path: P, content: &str) {
+        self.operations.push(PlannedOperation::CreateFile {
+            path: path.as_ref().to_path_buf(),
+            content: content.to_string(),
+        });
+    }
+
+    /// Record a planned directory creation
+    pub fn plan_dir<P: AsRef<Path>>(&mut self, path: P) {
+        self.operations.push(PlannedOperation::CreateDir {
+            path: path.as_ref().to_path_buf(),
+        });
+    }
+
+    /// Get all planned operations
+    pub fn operations(&self) -> &[PlannedOperation] {
+        &self.operations
+    }
+
+    /// Format the dry-run output for display
+    pub fn format_preview(&self) -> String {
+        if self.operations.is_empty() {
+            return "No changes planned.".to_string();
+        }
+
+        let mut output = String::from("Dry run - the following changes would be made:\n\n");
+
+        for op in &self.operations {
+            match op {
+                PlannedOperation::CreateDir { path } => {
+                    output.push_str(&format!("📁 CREATE DIR: {}\n", path.display()));
+                }
+                PlannedOperation::CreateFile { path, content } => {
+                    output.push_str(&format!("📄 CREATE FILE: {}\n", path.display()));
+                    // Show preview of content (first few lines)
+                    let preview_lines: Vec<&str> = content.lines().take(10).collect();
+                    if !preview_lines.is_empty() {
+                        output.push_str("   Content preview:\n");
+                        for line in &preview_lines {
+                            output.push_str(&format!("   │ {}\n", line));
+                        }
+                        let total_lines = content.lines().count();
+                        if total_lines > 10 {
+                            output
+                                .push_str(&format!("   │ ... ({} more lines)\n", total_lines - 10));
+                        }
+                    }
+                    output.push('\n');
+                }
+            }
+        }
+
+        output
+    }
+}
 
 /// Write content to a file, creating parent directories if needed
 ///
@@ -193,5 +281,102 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Failed to read file"));
+    }
+
+    // Dry-run context tests
+    #[test]
+    fn test_dry_run_context_new() {
+        let ctx = DryRunContext::new();
+        assert!(ctx.operations().is_empty());
+    }
+
+    #[test]
+    fn test_dry_run_plan_file() {
+        let mut ctx = DryRunContext::new();
+        ctx.plan_file("/tmp/test.txt", "hello world");
+
+        assert_eq!(ctx.operations().len(), 1);
+        match &ctx.operations()[0] {
+            PlannedOperation::CreateFile { path, content } => {
+                assert_eq!(path.to_str().unwrap(), "/tmp/test.txt");
+                assert_eq!(content, "hello world");
+            }
+            _ => panic!("Expected CreateFile operation"),
+        }
+    }
+
+    #[test]
+    fn test_dry_run_plan_dir() {
+        let mut ctx = DryRunContext::new();
+        ctx.plan_dir("/tmp/mydir");
+
+        assert_eq!(ctx.operations().len(), 1);
+        match &ctx.operations()[0] {
+            PlannedOperation::CreateDir { path } => {
+                assert_eq!(path.to_str().unwrap(), "/tmp/mydir");
+            }
+            _ => panic!("Expected CreateDir operation"),
+        }
+    }
+
+    #[test]
+    fn test_dry_run_multiple_operations() {
+        let mut ctx = DryRunContext::new();
+        ctx.plan_dir("/tmp/project");
+        ctx.plan_file("/tmp/project/Cargo.toml", "[package]\nname = \"test\"");
+        ctx.plan_file("/tmp/project/src/main.rs", "fn main() {}");
+
+        assert_eq!(ctx.operations().len(), 3);
+    }
+
+    #[test]
+    fn test_planned_operation_path() {
+        let file_op = PlannedOperation::CreateFile {
+            path: PathBuf::from("/tmp/test.txt"),
+            content: "content".to_string(),
+        };
+        let dir_op = PlannedOperation::CreateDir {
+            path: PathBuf::from("/tmp/mydir"),
+        };
+
+        assert_eq!(file_op.path().to_str().unwrap(), "/tmp/test.txt");
+        assert_eq!(dir_op.path().to_str().unwrap(), "/tmp/mydir");
+    }
+
+    #[test]
+    fn test_format_preview_empty() {
+        let ctx = DryRunContext::new();
+        let preview = ctx.format_preview();
+        assert_eq!(preview, "No changes planned.");
+    }
+
+    #[test]
+    fn test_format_preview_with_operations() {
+        let mut ctx = DryRunContext::new();
+        ctx.plan_dir("/tmp/project");
+        ctx.plan_file("/tmp/project/test.txt", "line 1\nline 2");
+
+        let preview = ctx.format_preview();
+        assert!(preview.contains("Dry run"));
+        assert!(preview.contains("CREATE DIR"));
+        assert!(preview.contains("CREATE FILE"));
+        assert!(preview.contains("/tmp/project"));
+        assert!(preview.contains("line 1"));
+    }
+
+    #[test]
+    fn test_format_preview_truncates_long_content() {
+        let mut ctx = DryRunContext::new();
+        let long_content: String = (1..=20)
+            .map(|i| format!("line {}", i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        ctx.plan_file("/tmp/test.txt", &long_content);
+
+        let preview = ctx.format_preview();
+        assert!(preview.contains("line 1"));
+        assert!(preview.contains("line 10"));
+        assert!(preview.contains("more lines"));
+        assert!(!preview.contains("line 11"));
     }
 }
