@@ -150,6 +150,19 @@ mod tests {
     }
 
     #[test]
+    fn test_get_template_webhook_mod() {
+        let content = get_template("webhook/mod.rs.tmpl");
+        assert!(content.is_ok());
+        let content = content.unwrap();
+        assert!(content.contains("{{kind_snake}}"));
+        assert!(content.contains("TlsConfig"));
+        assert!(content.contains("run_server"));
+        assert!(content.contains("tls()"));
+        assert!(content.contains("cert_path"));
+        assert!(content.contains("key_path"));
+    }
+
+    #[test]
     fn test_get_template_webhook_validating() {
         let content = get_template("webhook/validating.rs.tmpl");
         assert!(content.is_ok());

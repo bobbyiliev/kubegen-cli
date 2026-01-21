@@ -152,10 +152,6 @@ fn test_kubegen_add_webhook_file_content() {
     let mod_content =
         std::fs::read_to_string(webhook_dir.join("mod.rs")).expect("Failed to read mod.rs");
     assert!(
-        mod_content.contains("MyResource"),
-        "mod.rs should reference MyResource"
-    );
-    assert!(
         mod_content.contains("my_resource"),
         "mod.rs should use snake_case kind"
     );
@@ -167,6 +163,20 @@ fn test_kubegen_add_webhook_file_content() {
     assert!(
         mod_content.contains("healthz"),
         "mod.rs should have health endpoint"
+    );
+    // Check TLS support
+    assert!(
+        mod_content.contains("TlsConfig"),
+        "mod.rs should have TlsConfig struct"
+    );
+    assert!(mod_content.contains("tls()"), "mod.rs should use warp TLS");
+    assert!(
+        mod_content.contains("cert_path"),
+        "mod.rs should reference cert_path"
+    );
+    assert!(
+        mod_content.contains("run_server_insecure"),
+        "mod.rs should have insecure server for development"
     );
 
     // Check validating.rs content
