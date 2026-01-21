@@ -2,7 +2,7 @@
 
 use clap::Parser;
 use kubegen::cli::{AddCommands, Cli, Commands};
-use kubegen::commands::execute_new;
+use kubegen::commands::{execute_add_crd, execute_new};
 use tracing::{debug, error, info};
 
 fn main() {
@@ -16,17 +16,7 @@ fn main() {
     let result = match cli.command {
         Commands::New(args) => execute_new(&args),
         Commands::Add(add_cmd) => match add_cmd {
-            AddCommands::Crd(args) => {
-                info!("Adding CRD: {}", args.kind);
-                debug!(
-                    api_version = %args.api_version,
-                    group = ?args.group,
-                    dry_run = args.dry_run,
-                    "CRD settings"
-                );
-                // TODO: Implement CRD generation
-                Ok(())
-            }
+            AddCommands::Crd(args) => execute_add_crd(&args),
             AddCommands::Metrics(args) => {
                 info!("Adding metrics support");
                 debug!(port = args.port, dry_run = args.dry_run, "Metrics settings");
