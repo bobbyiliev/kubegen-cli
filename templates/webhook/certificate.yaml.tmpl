@@ -1,0 +1,20 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{service_name}}-cert
+  namespace: {{namespace}}
+spec:
+  secretName: {{service_name}}-tls
+  duration: 8760h # 1 year
+  renewBefore: 720h # 30 days
+  issuerRef:
+    name: {{service_name}}-issuer
+    kind: Issuer
+  dnsNames:
+    - {{service_name}}
+    - {{service_name}}.{{namespace}}
+    - {{service_name}}.{{namespace}}.svc
+    - {{service_name}}.{{namespace}}.svc.cluster.local
+  privateKey:
+    algorithm: RSA
+    size: 2048

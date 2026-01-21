@@ -149,6 +149,10 @@ fn get_paths_to_create(
         paths.push(manifests_dir.join("mutating-webhook-config.yaml"));
     }
 
+    // Add cert-manager resources (always generated for webhooks)
+    paths.push(manifests_dir.join("certificate.yaml"));
+    paths.push(manifests_dir.join("issuer.yaml"));
+
     // Add manifests directory
     paths.push(manifests_dir.to_path_buf());
 
@@ -198,6 +202,13 @@ fn execute_dry_run(
             &mutating_config,
         );
     }
+
+    // Always generate cert-manager resources for webhooks
+    let certificate_content = render_template(&renderer, "webhook/certificate.yaml.tmpl", ctx)?;
+    dry_run.plan_file(manifests_dir.join("certificate.yaml"), &certificate_content);
+
+    let issuer_content = render_template(&renderer, "webhook/issuer.yaml.tmpl", ctx)?;
+    dry_run.plan_file(manifests_dir.join("issuer.yaml"), &issuer_content);
 
     println!("{}", dry_run.format_preview());
     Ok(())
@@ -262,6 +273,19 @@ fn create_webhook_structure(
             opts,
         )?;
     }
+
+    // Always generate cert-manager resources for webhooks
+    let certificate_content = render_template(&renderer, "webhook/certificate.yaml.tmpl", ctx)?;
+    debug!("Writing certificate.yaml");
+    write_file_protected(
+        manifests_dir.join("certificate.yaml"),
+        &certificate_content,
+        opts,
+    )?;
+
+    let issuer_content = render_template(&renderer, "webhook/issuer.yaml.tmpl", ctx)?;
+    debug!("Writing issuer.yaml");
+    write_file_protected(manifests_dir.join("issuer.yaml"), &issuer_content, opts)?;
 
     Ok(())
 }
@@ -332,6 +356,12 @@ mod tests {
             .path()
             .join("manifests/webhook/mutating-webhook-config.yaml")
             .exists());
+        // Check cert-manager resources
+        assert!(temp
+            .path()
+            .join("manifests/webhook/certificate.yaml")
+            .exists());
+        assert!(temp.path().join("manifests/webhook/issuer.yaml").exists());
     }
 
     #[test]
@@ -360,6 +390,12 @@ mod tests {
             .path()
             .join("manifests/webhook/mutating-webhook-config.yaml")
             .exists());
+        // Check cert-manager resources
+        assert!(temp
+            .path()
+            .join("manifests/webhook/certificate.yaml")
+            .exists());
+        assert!(temp.path().join("manifests/webhook/issuer.yaml").exists());
     }
 
     #[test]
@@ -387,6 +423,12 @@ mod tests {
             .path()
             .join("manifests/webhook/mutating-webhook-config.yaml")
             .exists());
+        // Check cert-manager resources
+        assert!(temp
+            .path()
+            .join("manifests/webhook/certificate.yaml")
+            .exists());
+        assert!(temp.path().join("manifests/webhook/issuer.yaml").exists());
     }
 
     #[test]
@@ -515,6 +557,9 @@ mod tests {
         assert!(!paths.contains(&webhook_dir.join("mutating.rs")));
         assert!(paths.contains(&manifests_dir.join("validating-webhook-config.yaml")));
         assert!(!paths.contains(&manifests_dir.join("mutating-webhook-config.yaml")));
+        // cert-manager resources are always included
+        assert!(paths.contains(&manifests_dir.join("certificate.yaml")));
+        assert!(paths.contains(&manifests_dir.join("issuer.yaml")));
     }
 
     #[test]
@@ -528,6 +573,9 @@ mod tests {
         assert!(paths.contains(&webhook_dir.join("mutating.rs")));
         assert!(paths.contains(&manifests_dir.join("validating-webhook-config.yaml")));
         assert!(paths.contains(&manifests_dir.join("mutating-webhook-config.yaml")));
+        // cert-manager resources are always included
+        assert!(paths.contains(&manifests_dir.join("certificate.yaml")));
+        assert!(paths.contains(&manifests_dir.join("issuer.yaml")));
     }
 
     #[test]
@@ -570,5 +618,25 @@ mod tests {
         assert!(mutating_config.contains("mygroup.example.com"));
         assert!(mutating_config.contains("my-webhook"));
         assert!(mutating_config.contains("my-namespace"));
+
+        // Check certificate content
+        let certificate =
+            std::fs::read_to_string(temp.path().join("manifests/webhook/certificate.yaml"))
+                .unwrap();
+        assert!(certificate.contains("cert-manager.io/v1"));
+        assert!(certificate.contains("Certificate"));
+        assert!(certificate.contains("my-webhook"));
+        assert!(certificate.contains("my-namespace"));
+        assert!(certificate.contains("my-webhook-tls")); // secretName
+        assert!(certificate.contains("my-webhook-issuer")); // issuerRef
+
+        // Check issuer content
+        let issuer =
+            std::fs::read_to_string(temp.path().join("manifests/webhook/issuer.yaml")).unwrap();
+        assert!(issuer.contains("cert-manager.io/v1"));
+        assert!(issuer.contains("Issuer"));
+        assert!(issuer.contains("my-webhook-issuer"));
+        assert!(issuer.contains("my-namespace"));
+        assert!(issuer.contains("selfSigned"));
     }
 }
