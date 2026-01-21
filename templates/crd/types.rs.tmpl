@@ -1,0 +1,29 @@
+//! CRD type definitions for {{kind}}
+
+use kube::CustomResource;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+/// {{kind}} specification
+#[derive(CustomResource, Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[kube(
+    group = "{{group}}",
+    version = "{{version}}",
+    kind = "{{kind}}",
+    namespaced,
+    status = "{{kind}}Status",
+    printcolumn = r#"{"name":"Age","type":"date","jsonPath":".metadata.creationTimestamp"}"#
+)]
+pub struct {{kind}}Spec {
+    /// Example field - replace with your actual spec fields
+    pub replicas: Option<i32>,
+}
+
+/// {{kind}} status
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+pub struct {{kind}}Status {
+    /// Current number of ready replicas
+    pub ready_replicas: i32,
+    /// Human-readable status message
+    pub message: Option<String>,
+}

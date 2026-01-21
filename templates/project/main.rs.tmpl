@@ -1,0 +1,30 @@
+//! {{project_name}} - A Kubernetes operator built with kube-rs
+
+use std::sync::Arc;
+
+use kube::Client;
+use tracing::{info, Level};
+use tracing_subscriber::FmtSubscriber;
+
+mod error;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize tracing
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(Level::INFO)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)?;
+
+    info!("Starting {{project_name}}");
+
+    // Create Kubernetes client
+    let client = Client::try_default().await?;
+    let _client = Arc::new(client);
+
+    info!("{{project_name}} initialized successfully");
+
+    // TODO: Start your controllers here
+
+    Ok(())
+}
