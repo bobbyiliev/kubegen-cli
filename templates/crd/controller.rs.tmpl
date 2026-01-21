@@ -1,0 +1,80 @@
+//! Controller for {{kind}} resources
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use futures::StreamExt;
+use kube::{
+    api::{Api, ListParams, Patch, PatchParams},
+    client::Client,
+    runtime::controller::{Action, Controller},
+    Resource, ResourceExt,
+};
+use tracing::{error, info, instrument};
+
+use crate::{{kind_snake}}::types::{{kind}};
+use crate::error::{Error, Result};
+
+/// Context for the {{kind}} controller
+pub struct Context {
+    pub client: Client,
+}
+
+/// Reconcile a {{kind}} resource
+#[instrument(skip(ctx, resource), fields(name = %resource.name_any(), namespace = resource.namespace()))]
+async fn reconcile(resource: Arc<{{kind}}>, ctx: Arc<Context>) -> Result<Action> {
+    let name = resource.name_any();
+    let namespace = resource.namespace().unwrap_or_default();
+
+    info!("Reconciling {{kind}} {}/{}", namespace, name);
+
+    let api: Api<{{kind}}> = Api::namespaced(ctx.client.clone(), &namespace);
+
+    // TODO: Add your reconciliation logic here
+
+    // Update status
+    let status = serde_json::json!({
+        "status": {
+            "ready_replicas": 0,
+            "message": "Reconciled successfully"
+        }
+    });
+
+    api.patch_status(
+        &name,
+        &PatchParams::apply("{{project_name}}"),
+        &Patch::Merge(&status),
+    )
+    .await
+    .map_err(Error::KubeError)?;
+
+    Ok(Action::requeue(Duration::from_secs(300)))
+}
+
+/// Handle errors during reconciliation
+fn error_policy(resource: Arc<{{kind}}>, error: &Error, _ctx: Arc<Context>) -> Action {
+    error!(
+        "Reconciliation error for {}: {:?}",
+        resource.name_any(),
+        error
+    );
+    Action::requeue(Duration::from_secs(60))
+}
+
+/// Start the {{kind}} controller
+pub async fn run(client: Client) -> Result<()> {
+    let api: Api<{{kind}}> = Api::all(client.clone());
+    let ctx = Arc::new(Context { client });
+
+    Controller::new(api, ListParams::default())
+        .run(reconcile, error_policy, ctx)
+        .for_each(|res| async move {
+            match res {
+                Ok(o) => info!("Reconciled {:?}", o),
+                Err(e) => error!("Reconcile failed: {:?}", e),
+            }
+        })
+        .await;
+
+    Ok(())
+}

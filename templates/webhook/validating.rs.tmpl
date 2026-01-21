@@ -1,0 +1,35 @@
+//! Validating webhook for {{kind}}
+
+use kube::core::{
+    admission::{AdmissionRequest, AdmissionResponse, AdmissionReview},
+    DynamicObject,
+};
+use tracing::{info, warn};
+
+use crate::{{kind_snake}}::types::{{kind}};
+
+/// Validate a {{kind}} resource
+pub fn validate(req: AdmissionRequest<{{kind}}>) -> AdmissionResponse {
+    let name = req.name.as_deref().unwrap_or("<unknown>");
+    info!("Validating {{kind}}: {}", name);
+
+    // Get the object being validated
+    let obj = match req.object {
+        Some(ref obj) => obj,
+        None => {
+            return AdmissionResponse::invalid("No object provided in request");
+        }
+    };
+
+    // TODO: Add your validation logic here
+    // Example: validate spec fields
+    if let Some(replicas) = obj.spec.replicas {
+        if replicas < 0 {
+            warn!("Invalid replicas value: {}", replicas);
+            return AdmissionResponse::invalid("replicas must be non-negative");
+        }
+    }
+
+    info!("{{kind}} {} validation passed", name);
+    AdmissionResponse::from(&req)
+}

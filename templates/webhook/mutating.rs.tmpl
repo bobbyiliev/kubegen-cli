@@ -1,0 +1,36 @@
+//! Mutating webhook for {{kind}}
+
+use kube::core::{
+    admission::{AdmissionRequest, AdmissionResponse},
+    DynamicObject,
+};
+use serde_json::json;
+use tracing::info;
+
+use crate::{{kind_snake}}::types::{{kind}};
+
+/// Mutate a {{kind}} resource
+pub fn mutate(req: AdmissionRequest<{{kind}}>) -> AdmissionResponse {
+    let name = req.name.as_deref().unwrap_or("<unknown>");
+    info!("Mutating {{kind}}: {}", name);
+
+    let mut res = AdmissionResponse::from(&req);
+
+    // TODO: Add your mutation logic here
+    // Example: set default values
+    let mut patches = Vec::new();
+
+    // Example: add a default label if not present
+    patches.push(json!({
+        "op": "add",
+        "path": "/metadata/labels/managed-by",
+        "value": "{{project_name}}"
+    }));
+
+    if !patches.is_empty() {
+        res = res.with_patch(json!(patches)).expect("Failed to create patch");
+    }
+
+    info!("{{kind}} {} mutation complete", name);
+    res
+}

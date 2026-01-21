@@ -1,0 +1,61 @@
+//! Prometheus metrics for {{project_name}}
+
+use std::net::SocketAddr;
+
+use hyper::{
+    service::{make_service_fn, service_fn},
+    Body, Request, Response, Server,
+};
+use prometheus::{Encoder, TextEncoder, register_counter, register_histogram, Counter, Histogram};
+use tracing::{error, info};
+
+lazy_static::lazy_static! {
+    /// Counter for reconciliation attempts
+    pub static ref RECONCILE_COUNTER: Counter = register_counter!(
+        "{{project_name_snake}}_reconcile_total",
+        "Total number of reconciliations"
+    ).unwrap();
+
+    /// Histogram for reconciliation duration
+    pub static ref RECONCILE_DURATION: Histogram = register_histogram!(
+        "{{project_name_snake}}_reconcile_duration_seconds",
+        "Time spent in reconciliation"
+    ).unwrap();
+
+    /// Counter for reconciliation errors
+    pub static ref RECONCILE_ERRORS: Counter = register_counter!(
+        "{{project_name_snake}}_reconcile_errors_total",
+        "Total number of reconciliation errors"
+    ).unwrap();
+}
+
+/// Handle metrics requests
+async fn metrics_handler(_req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+    let encoder = TextEncoder::new();
+    let metric_families = prometheus::gather();
+    let mut buffer = Vec::new();
+
+    encoder.encode(&metric_families, &mut buffer).unwrap();
+
+    Ok(Response::builder()
+        .header("Content-Type", encoder.format_type())
+        .body(Body::from(buffer))
+        .unwrap())
+}
+
+/// Start the metrics server
+pub async fn run_metrics_server(port: u16) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+
+    let make_svc = make_service_fn(|_conn| async { Ok::<_, hyper::Error>(service_fn(metrics_handler)) });
+
+    let server = Server::bind(&addr).serve(make_svc);
+
+    info!("Metrics server listening on {}", addr);
+
+    if let Err(e) = server.await {
+        error!("Metrics server error: {}", e);
+    }
+
+    Ok(())
+}

@@ -1,0 +1,21 @@
+//! Error types for {{project_name}}
+
+use thiserror::Error;
+
+/// Main error type for the operator
+#[derive(Error, Debug)]
+pub enum Error {
+    /// Kubernetes API error
+    #[error("Kubernetes API error: {0}")]
+    KubeError(#[from] kube::Error),
+
+    /// Serialization error
+    #[error("Serialization error: {0}")]
+    SerializationError(#[from] serde_json::Error),
+
+    /// Generic error
+    #[error("{0}")]
+    Generic(String),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
