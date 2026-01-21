@@ -171,11 +171,8 @@ fn render_template(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
+    use crate::commands::test_utils::CWD_LOCK;
     use tempfile::TempDir;
-
-    // Mutex to serialize tests that change the current directory
-    static CWD_MUTEX: Mutex<()> = Mutex::new(());
 
     fn make_args(kind: &str) -> CrdArgs {
         CrdArgs {
@@ -199,7 +196,7 @@ mod tests {
 
     #[test]
     fn test_execute_add_crd_creates_files() {
-        let _lock = CWD_MUTEX.lock().unwrap();
+        let _lock = CWD_LOCK.lock().unwrap();
         let temp = TempDir::new().unwrap();
         setup_project(&temp);
 
@@ -218,7 +215,7 @@ mod tests {
 
     #[test]
     fn test_execute_add_crd_dry_run() {
-        let _lock = CWD_MUTEX.lock().unwrap();
+        let _lock = CWD_LOCK.lock().unwrap();
         let temp = TempDir::new().unwrap();
         setup_project(&temp);
 
@@ -251,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_execute_add_crd_not_in_project() {
-        let _lock = CWD_MUTEX.lock().unwrap();
+        let _lock = CWD_LOCK.lock().unwrap();
         let temp = TempDir::new().unwrap();
         // Don't create project structure
 
@@ -267,7 +264,7 @@ mod tests {
 
     #[test]
     fn test_execute_add_crd_existing_without_force() {
-        let _lock = CWD_MUTEX.lock().unwrap();
+        let _lock = CWD_LOCK.lock().unwrap();
         let temp = TempDir::new().unwrap();
         setup_project(&temp);
 
@@ -288,7 +285,7 @@ mod tests {
 
     #[test]
     fn test_execute_add_crd_force_overwrites() {
-        let _lock = CWD_MUTEX.lock().unwrap();
+        let _lock = CWD_LOCK.lock().unwrap();
         let temp = TempDir::new().unwrap();
         setup_project(&temp);
 
