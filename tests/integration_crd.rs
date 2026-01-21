@@ -265,3 +265,72 @@ fn test_kubegen_add_crd_default_group() {
         "types.rs should use default group example.com"
     );
 }
+
+/// Test that a generated project with CRD compiles successfully
+///
+/// This test is marked as ignored by default because it requires network access
+/// to download dependencies and takes longer to run. Run with:
+/// `cargo test --test integration_crd -- --ignored`
+#[test]
+#[ignore]
+fn test_project_with_crd_compiles() {
+    let temp = TempDir::new().expect("Failed to create temp directory");
+
+    // Step 1: Generate project with kubegen new
+    let new_output = Command::new(env!("CARGO_BIN_EXE_kubegen"))
+        .args(["new", "crd-compile-test", "--domain", "example.com"])
+        .current_dir(temp.path())
+        .output()
+        .expect("Failed to execute kubegen new");
+
+    assert!(
+        new_output.status.success(),
+        "kubegen new failed: {}",
+        String::from_utf8_lossy(&new_output.stderr)
+    );
+
+    let project_dir = temp.path().join("crd-compile-test");
+
+    // Step 2: Add CRD to the project
+    let crd_output = Command::new(env!("CARGO_BIN_EXE_kubegen"))
+        .args([
+            "add",
+            "crd",
+            "MyResource",
+            "--group",
+            "example.com",
+            "--api-version",
+            "v1alpha1",
+        ])
+        .current_dir(&project_dir)
+        .output()
+        .expect("Failed to execute kubegen add crd");
+
+    assert!(
+        crd_output.status.success(),
+        "kubegen add crd failed: {}",
+        String::from_utf8_lossy(&crd_output.stderr)
+    );
+
+    // Step 3: Update lib.rs to include the CRD module
+    // Insert the module declaration after the doc comment to avoid rustc error E0753
+    let lib_path = project_dir.join("src/lib.rs");
+    let lib_content = std::fs::read_to_string(&lib_path).expect("Failed to read lib.rs");
+    let updated_lib =
+        lib_content.replacen("pub mod error;", "pub mod error;\npub mod my_resource;", 1);
+    std::fs::write(&lib_path, updated_lib).expect("Failed to write lib.rs");
+
+    // Step 4: Run cargo check to verify compilation
+    let check_output = Command::new("cargo")
+        .args(["check"])
+        .current_dir(&project_dir)
+        .output()
+        .expect("Failed to run cargo check");
+
+    assert!(
+        check_output.status.success(),
+        "Project with CRD failed to compile:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&check_output.stdout),
+        String::from_utf8_lossy(&check_output.stderr)
+    );
+}
