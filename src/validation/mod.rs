@@ -669,7 +669,10 @@ mod tests {
     fn test_crd_group_underscore() {
         let result = validate_crd_group("my_app.example.com");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("invalid character"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("invalid character"));
     }
 
     #[test]
