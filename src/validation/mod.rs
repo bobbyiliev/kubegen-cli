@@ -494,4 +494,273 @@ mod tests {
         assert_eq!(pluralize("Deployment"), "deployments");
         assert_eq!(pluralize("Gateway"), "gateways");
     }
+
+    // Additional project name edge case tests
+    #[test]
+    fn test_project_name_max_length() {
+        // 63 characters is the max
+        let max_name = "a".repeat(63);
+        assert!(validate_project_name(&max_name).is_ok());
+    }
+
+    #[test]
+    fn test_project_name_too_long() {
+        // 64 characters exceeds limit
+        let too_long = "a".repeat(64);
+        let result = validate_project_name(&too_long);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("63 characters"));
+    }
+
+    #[test]
+    fn test_project_name_with_numbers() {
+        assert!(validate_project_name("operator123").is_ok());
+        assert!(validate_project_name("123operator").is_ok());
+        assert!(validate_project_name("op3r4t0r").is_ok());
+    }
+
+    #[test]
+    fn test_project_name_consecutive_hyphens() {
+        // Consecutive hyphens are technically valid per DNS-1123
+        assert!(validate_project_name("my--operator").is_ok());
+    }
+
+    #[test]
+    fn test_project_name_special_chars() {
+        let result = validate_project_name("my.operator");
+        assert!(result.is_err());
+
+        let result = validate_project_name("my@operator");
+        assert!(result.is_err());
+
+        let result = validate_project_name("my operator");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_project_name_single_number() {
+        assert!(validate_project_name("1").is_ok());
+    }
+
+    // Additional CRD kind edge case tests
+    #[test]
+    fn test_crd_kind_empty() {
+        let result = validate_crd_kind("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("empty"));
+    }
+
+    #[test]
+    fn test_crd_kind_with_numbers() {
+        assert!(validate_crd_kind("My2Resource").is_ok());
+        assert!(validate_crd_kind("Resource123").is_ok());
+    }
+
+    #[test]
+    fn test_crd_kind_number_start() {
+        let result = validate_crd_kind("2Resource");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("uppercase"));
+    }
+
+    #[test]
+    fn test_crd_kind_underscore() {
+        let result = validate_crd_kind("My_Resource");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("invalid character"));
+    }
+
+    #[test]
+    fn test_crd_kind_space() {
+        let result = validate_crd_kind("My Resource");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_crd_kind_all_uppercase() {
+        assert!(validate_crd_kind("MYRESOURCE").is_ok());
+    }
+
+    // Additional CRD version edge case tests
+    #[test]
+    fn test_crd_version_empty() {
+        let result = validate_crd_version("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("empty"));
+    }
+
+    #[test]
+    fn test_crd_version_large_number() {
+        assert!(validate_crd_version("v999").is_ok());
+        assert!(validate_crd_version("v123alpha456").is_ok());
+    }
+
+    #[test]
+    fn test_crd_version_gamma() {
+        // gamma is not a valid stability level
+        let result = validate_crd_version("v1gamma1");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_crd_version_uppercase_alpha() {
+        let result = validate_crd_version("v1Alpha1");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_crd_version_spaces() {
+        let result = validate_crd_version("v1 alpha1");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_crd_version_v0() {
+        // v0 is technically valid
+        assert!(validate_crd_version("v0").is_ok());
+    }
+
+    // Additional CRD group edge case tests
+    #[test]
+    fn test_crd_group_empty() {
+        let result = validate_crd_group("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("empty"));
+    }
+
+    #[test]
+    fn test_crd_group_trailing_dot() {
+        let result = validate_crd_group("example.com.");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("empty"));
+    }
+
+    #[test]
+    fn test_crd_group_leading_dot() {
+        let result = validate_crd_group(".example.com");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("empty"));
+    }
+
+    #[test]
+    fn test_crd_group_segment_starts_with_hyphen() {
+        let result = validate_crd_group("-example.com");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("start with"));
+    }
+
+    #[test]
+    fn test_crd_group_segment_ends_with_hyphen() {
+        let result = validate_crd_group("example-.com");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("end with"));
+    }
+
+    #[test]
+    fn test_crd_group_with_numbers() {
+        assert!(validate_crd_group("app123.example.com").is_ok());
+        assert!(validate_crd_group("123app.example.com").is_ok());
+    }
+
+    #[test]
+    fn test_crd_group_underscore() {
+        let result = validate_crd_group("my_app.example.com");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid character"));
+    }
+
+    #[test]
+    fn test_crd_group_single_segment() {
+        // Single segment (no dots) is valid
+        assert!(validate_crd_group("mygroup").is_ok());
+    }
+
+    #[test]
+    fn test_crd_group_many_segments() {
+        assert!(validate_crd_group("a.b.c.d.e.f.g.example.com").is_ok());
+    }
+
+    // Additional helper function edge case tests
+    #[test]
+    fn test_to_snake_case_empty() {
+        assert_eq!(to_snake_case(""), "");
+    }
+
+    #[test]
+    fn test_to_snake_case_all_lowercase() {
+        assert_eq!(to_snake_case("resource"), "resource");
+    }
+
+    #[test]
+    fn test_to_snake_case_all_uppercase() {
+        assert_eq!(to_snake_case("ABC"), "a_b_c");
+    }
+
+    #[test]
+    fn test_to_snake_case_consecutive_uppercase() {
+        // Simple implementation treats each uppercase as separate
+        assert_eq!(to_snake_case("XMLParser"), "x_m_l_parser");
+    }
+
+    #[test]
+    fn test_to_snake_case_with_numbers() {
+        assert_eq!(to_snake_case("Resource123"), "resource123");
+        assert_eq!(to_snake_case("My2ndResource"), "my2nd_resource");
+    }
+
+    #[test]
+    fn test_pluralize_empty() {
+        assert_eq!(pluralize(""), "s");
+    }
+
+    #[test]
+    fn test_pluralize_already_plural() {
+        // Our simple implementation doesn't detect already-plural words
+        assert_eq!(pluralize("Pods"), "podses");
+    }
+
+    #[test]
+    fn test_pluralize_x_ending() {
+        assert_eq!(pluralize("Index"), "indexes");
+        assert_eq!(pluralize("Box"), "boxes");
+    }
+
+    #[test]
+    fn test_pluralize_ch_ending() {
+        assert_eq!(pluralize("Watch"), "watches");
+        assert_eq!(pluralize("Batch"), "batches");
+    }
+
+    #[test]
+    fn test_pluralize_sh_ending() {
+        assert_eq!(pluralize("Mesh"), "meshes");
+        assert_eq!(pluralize("Dash"), "dashes");
+    }
+
+    #[test]
+    fn test_pluralize_y_with_vowel() {
+        // y preceded by vowel just adds s
+        assert_eq!(pluralize("Key"), "keys");
+        assert_eq!(pluralize("Day"), "days");
+        assert_eq!(pluralize("Boy"), "boys");
+        assert_eq!(pluralize("Guy"), "guys");
+    }
+
+    #[test]
+    fn test_pluralize_y_with_consonant() {
+        // y preceded by consonant changes to ies
+        assert_eq!(pluralize("Entity"), "entities");
+        assert_eq!(pluralize("Library"), "libraries");
+        assert_eq!(pluralize("Dependency"), "dependencies");
+    }
+
+    #[test]
+    fn test_pluralize_uppercase_preserved_as_lowercase() {
+        // Our implementation lowercases everything
+        assert_eq!(pluralize("POD"), "pods");
+        assert_eq!(pluralize("CRD"), "crds");
+    }
 }
