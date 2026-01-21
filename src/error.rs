@@ -79,6 +79,10 @@ pub enum KubegenError {
     /// IO error
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// Validation error (generic)
+    #[error("{0}")]
+    ValidationError(String),
 }
 
 #[cfg(test)]
@@ -141,5 +145,11 @@ mod tests {
                 "Project not initialized in current directory"
             );
         }
+    }
+
+    #[test]
+    fn test_validation_error() {
+        let err = KubegenError::ValidationError("Custom validation message".to_string());
+        assert_eq!(err.to_string(), "Custom validation message");
     }
 }
