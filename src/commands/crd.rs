@@ -1,0 +1,339 @@
+//! Implementation of the `kubegen add crd` command
+//!
+//! Adds a new CRD to an existing Kubernetes operator project.
+
+use std::path::Path;
+
+use tracing::{debug, info};
+
+use crate::cli::CrdArgs;
+use crate::error::Result;
+use crate::fs::{
+    check_conflicts, create_dir_all, format_conflicts, write_file_protected, DryRunContext,
+    WriteOptions,
+};
+use crate::templates::{
+    get_template, CrdContext, SimpleRenderer, StringTemplate, TemplateContext, TemplateRenderer,
+};
+use crate::validation;
+
+/// Execute the `kubegen add crd` command
+pub fn execute_add_crd(args: &CrdArgs) -> Result<()> {
+    // Validate CRD kind
+    validation::validate_crd_kind(&args.kind)?;
+
+    // Validate API version
+    validation::validate_crd_version(&args.api_version)?;
+
+    // Determine group - use provided or default to example.com
+    let group = args
+        .group
+        .clone()
+        .unwrap_or_else(|| "example.com".to_string());
+
+    // Validate group
+    validation::validate_crd_group(&group)?;
+
+    // Validate we're in a kubegen project (Cargo.toml with kube dependency exists)
+    validate_project_structure()?;
+
+    info!("Adding CRD: {}", args.kind);
+
+    // Build CRD context
+    let crd_ctx = CrdContext::builder()
+        .group(&group)
+        .version(&args.api_version)
+        .kind(&args.kind)
+        .with_controller(true)
+        .with_status(true)
+        .build()
+        .ok_or_else(|| {
+            crate::error::KubegenError::ValidationError("Failed to build CRD context".to_string())
+        })?;
+
+    let template_ctx = crd_ctx.to_template_context();
+    let crd_dir = Path::new("src").join(&crd_ctx.kind_snake);
+
+    if args.dry_run {
+        return execute_dry_run(&crd_dir, &template_ctx);
+    }
+
+    let write_opts = WriteOptions::with_force(args.force);
+
+    // Check for conflicts before proceeding
+    let paths_to_create = get_paths_to_create(&crd_dir);
+    let conflicts = check_conflicts(&paths_to_create, &write_opts);
+    if !conflicts.is_empty() {
+        return Err(crate::error::KubegenError::ValidationError(
+            format_conflicts(&conflicts),
+        ));
+    }
+
+    // Create CRD module structure
+    create_crd_structure(&crd_dir, &template_ctx, &write_opts)?;
+
+    info!("CRD '{}' added successfully!", args.kind);
+    info!("Next steps:");
+    info!("  1. Add 'mod {};' to src/lib.rs", crd_ctx.kind_snake);
+    info!("  2. Update src/main.rs to start the controller");
+    info!("  3. Run 'cargo build' to verify");
+
+    Ok(())
+}
+
+/// Validate that we're in a kubegen project directory
+fn validate_project_structure() -> Result<()> {
+    let cargo_toml = Path::new("Cargo.toml");
+    if !cargo_toml.exists() {
+        return Err(crate::error::KubegenError::ValidationError(
+            "Not in a Rust project directory (Cargo.toml not found)".to_string(),
+        ));
+    }
+
+    let src_dir = Path::new("src");
+    if !src_dir.exists() {
+        return Err(crate::error::KubegenError::ValidationError(
+            "Not in a valid project directory (src/ not found)".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Get list of paths that will be created
+fn get_paths_to_create(crd_dir: &Path) -> Vec<std::path::PathBuf> {
+    vec![
+        crd_dir.to_path_buf(),
+        crd_dir.join("mod.rs"),
+        crd_dir.join("types.rs"),
+        crd_dir.join("controller.rs"),
+    ]
+}
+
+/// Execute in dry-run mode
+fn execute_dry_run(crd_dir: &Path, ctx: &TemplateContext) -> Result<()> {
+    let mut dry_run = DryRunContext::new();
+
+    dry_run.plan_dir(crd_dir);
+
+    let renderer = SimpleRenderer::new();
+
+    let mod_content = render_template(&renderer, "crd/mod.rs.tmpl", ctx)?;
+    dry_run.plan_file(crd_dir.join("mod.rs"), &mod_content);
+
+    let types_content = render_template(&renderer, "crd/types.rs.tmpl", ctx)?;
+    dry_run.plan_file(crd_dir.join("types.rs"), &types_content);
+
+    let controller_content = render_template(&renderer, "crd/controller.rs.tmpl", ctx)?;
+    dry_run.plan_file(crd_dir.join("controller.rs"), &controller_content);
+
+    println!("{}", dry_run.format_preview());
+    Ok(())
+}
+
+/// Create the CRD module structure
+fn create_crd_structure(crd_dir: &Path, ctx: &TemplateContext, opts: &WriteOptions) -> Result<()> {
+    let renderer = SimpleRenderer::new();
+
+    // Create CRD directory
+    debug!("Creating CRD directory: {}", crd_dir.display());
+    create_dir_all(crd_dir)?;
+
+    // Render and write mod.rs
+    let mod_content = render_template(&renderer, "crd/mod.rs.tmpl", ctx)?;
+    debug!("Writing mod.rs");
+    write_file_protected(crd_dir.join("mod.rs"), &mod_content, opts)?;
+
+    // Render and write types.rs
+    let types_content = render_template(&renderer, "crd/types.rs.tmpl", ctx)?;
+    debug!("Writing types.rs");
+    write_file_protected(crd_dir.join("types.rs"), &types_content, opts)?;
+
+    // Render and write controller.rs
+    let controller_content = render_template(&renderer, "crd/controller.rs.tmpl", ctx)?;
+    debug!("Writing controller.rs");
+    write_file_protected(crd_dir.join("controller.rs"), &controller_content, opts)?;
+
+    Ok(())
+}
+
+/// Helper to render a template by path
+fn render_template(
+    renderer: &SimpleRenderer,
+    template_path: &str,
+    ctx: &TemplateContext,
+) -> Result<String> {
+    let template_content = get_template(template_path)?;
+    let template = StringTemplate::new(template_path, &template_content);
+    renderer.render(&template, ctx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+    use tempfile::TempDir;
+
+    // Mutex to serialize tests that change the current directory
+    static CWD_MUTEX: Mutex<()> = Mutex::new(());
+
+    fn make_args(kind: &str) -> CrdArgs {
+        CrdArgs {
+            kind: kind.to_string(),
+            group: Some("example.com".to_string()),
+            api_version: "v1alpha1".to_string(),
+            dry_run: false,
+            force: false,
+        }
+    }
+
+    fn setup_project(temp: &TempDir) {
+        // Create minimal project structure
+        std::fs::create_dir_all(temp.path().join("src")).unwrap();
+        std::fs::write(
+            temp.path().join("Cargo.toml"),
+            "[package]\nname = \"test\"\nversion = \"0.1.0\"",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_execute_add_crd_creates_files() {
+        let _lock = CWD_MUTEX.lock().unwrap();
+        let temp = TempDir::new().unwrap();
+        setup_project(&temp);
+
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let result = execute_add_crd(&make_args("MyResource"));
+        std::env::set_current_dir(&original_dir).unwrap();
+
+        assert!(result.is_ok());
+        assert!(temp.path().join("src/my_resource").exists());
+        assert!(temp.path().join("src/my_resource/mod.rs").exists());
+        assert!(temp.path().join("src/my_resource/types.rs").exists());
+        assert!(temp.path().join("src/my_resource/controller.rs").exists());
+    }
+
+    #[test]
+    fn test_execute_add_crd_dry_run() {
+        let _lock = CWD_MUTEX.lock().unwrap();
+        let temp = TempDir::new().unwrap();
+        setup_project(&temp);
+
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let mut args = make_args("DryRunResource");
+        args.dry_run = true;
+        let result = execute_add_crd(&args);
+
+        std::env::set_current_dir(&original_dir).unwrap();
+
+        assert!(result.is_ok());
+        assert!(!temp.path().join("src/dry_run_resource").exists());
+    }
+
+    #[test]
+    fn test_execute_add_crd_invalid_kind() {
+        let args = CrdArgs {
+            kind: "invalid-kind".to_string(), // Contains hyphen
+            group: Some("example.com".to_string()),
+            api_version: "v1alpha1".to_string(),
+            dry_run: false,
+            force: false,
+        };
+
+        let result = execute_add_crd(&args);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_execute_add_crd_not_in_project() {
+        let _lock = CWD_MUTEX.lock().unwrap();
+        let temp = TempDir::new().unwrap();
+        // Don't create project structure
+
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let result = execute_add_crd(&make_args("MyResource"));
+
+        std::env::set_current_dir(&original_dir).unwrap();
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_execute_add_crd_existing_without_force() {
+        let _lock = CWD_MUTEX.lock().unwrap();
+        let temp = TempDir::new().unwrap();
+        setup_project(&temp);
+
+        // Create existing CRD directory
+        let crd_dir = temp.path().join("src/my_resource");
+        std::fs::create_dir_all(&crd_dir).unwrap();
+        std::fs::write(crd_dir.join("mod.rs"), "existing").unwrap();
+
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let result = execute_add_crd(&make_args("MyResource"));
+
+        std::env::set_current_dir(&original_dir).unwrap();
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_execute_add_crd_force_overwrites() {
+        let _lock = CWD_MUTEX.lock().unwrap();
+        let temp = TempDir::new().unwrap();
+        setup_project(&temp);
+
+        // Create existing CRD directory
+        let crd_dir = temp.path().join("src/my_resource");
+        std::fs::create_dir_all(&crd_dir).unwrap();
+        std::fs::write(crd_dir.join("mod.rs"), "old content").unwrap();
+
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let mut args = make_args("MyResource");
+        args.force = true;
+        let result = execute_add_crd(&args);
+
+        std::env::set_current_dir(&original_dir).unwrap();
+
+        assert!(result.is_ok());
+        let content = std::fs::read_to_string(crd_dir.join("mod.rs")).unwrap();
+        assert!(content.contains("MyResource"));
+    }
+
+    #[test]
+    fn test_get_paths_to_create() {
+        let crd_dir = Path::new("src/my_resource");
+        let paths = get_paths_to_create(crd_dir);
+
+        assert!(paths.contains(&crd_dir.to_path_buf()));
+        assert!(paths.contains(&crd_dir.join("mod.rs")));
+        assert!(paths.contains(&crd_dir.join("types.rs")));
+        assert!(paths.contains(&crd_dir.join("controller.rs")));
+    }
+
+    #[test]
+    fn test_render_template() {
+        let renderer = SimpleRenderer::new();
+        let mut ctx = TemplateContext::new();
+        ctx.set("kind", "TestResource");
+        ctx.set("kind_snake", "test_resource");
+        ctx.set("group", "example.com");
+        ctx.set("version", "v1");
+
+        let result = render_template(&renderer, "crd/mod.rs.tmpl", &ctx);
+        assert!(result.is_ok());
+        let content = result.unwrap();
+        assert!(content.contains("TestResource"));
+    }
+}
