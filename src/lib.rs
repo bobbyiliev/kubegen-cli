@@ -7,6 +7,7 @@ pub mod cli;
 pub mod error;
 pub mod fs;
 pub mod logging;
+pub mod validation;
 
 // Re-export commonly used types
 pub use error::{KubegenError, Result};
