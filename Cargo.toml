@@ -11,6 +11,7 @@ keywords = ["kubernetes", "operator", "kube-rs", "cli", "scaffolding"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
+thiserror = "2.0"
 
 [dev-dependencies]
 
