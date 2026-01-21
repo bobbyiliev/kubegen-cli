@@ -168,6 +168,26 @@ mod tests {
     }
 
     #[test]
+    fn test_get_template_webhook_validating_config() {
+        let content = get_template("webhook/validating-webhook-config.yaml.tmpl");
+        assert!(content.is_ok());
+        let content = content.unwrap();
+        assert!(content.contains("ValidatingWebhookConfiguration"));
+        assert!(content.contains("{{kind_snake}}"));
+        assert!(content.contains("{{group}}"));
+    }
+
+    #[test]
+    fn test_get_template_webhook_mutating_config() {
+        let content = get_template("webhook/mutating-webhook-config.yaml.tmpl");
+        assert!(content.is_ok());
+        let content = content.unwrap();
+        assert!(content.contains("MutatingWebhookConfiguration"));
+        assert!(content.contains("{{kind_snake}}"));
+        assert!(content.contains("{{group}}"));
+    }
+
+    #[test]
     fn test_get_template_metrics() {
         let content = get_template("metrics/prometheus.rs.tmpl");
         assert!(content.is_ok());
