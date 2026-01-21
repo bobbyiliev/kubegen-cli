@@ -1,0 +1,23 @@
+[package]
+name = "kubegen"
+version = "0.1.0"
+edition = "2021"
+authors = ["Bobby Iliev"]
+description = "A CLI tool for scaffolding Kubernetes operators in Rust using kube-rs"
+repository = "https://github.com/bobbyiliev/kubegen-cli"
+license = "Apache-2.0"
+readme = "README.md"
+keywords = ["kubernetes", "operator", "kube-rs", "cli", "scaffolding"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+
+[dev-dependencies]
+
+[[bin]]
+name = "kubegen"
+path = "src/main.rs"
+
+[lib]
+name = "kubegen"
+path = "src/lib.rs"
