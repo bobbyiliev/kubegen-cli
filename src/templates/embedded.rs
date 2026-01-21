@@ -188,6 +188,27 @@ mod tests {
     }
 
     #[test]
+    fn test_get_template_webhook_certificate() {
+        let content = get_template("webhook/certificate.yaml.tmpl");
+        assert!(content.is_ok());
+        let content = content.unwrap();
+        assert!(content.contains("cert-manager.io/v1"));
+        assert!(content.contains("Certificate"));
+        assert!(content.contains("{{service_name}}"));
+        assert!(content.contains("{{namespace}}"));
+    }
+
+    #[test]
+    fn test_get_template_webhook_issuer() {
+        let content = get_template("webhook/issuer.yaml.tmpl");
+        assert!(content.is_ok());
+        let content = content.unwrap();
+        assert!(content.contains("cert-manager.io/v1"));
+        assert!(content.contains("Issuer"));
+        assert!(content.contains("selfSigned"));
+    }
+
+    #[test]
     fn test_get_template_metrics() {
         let content = get_template("metrics/prometheus.rs.tmpl");
         assert!(content.is_ok());
