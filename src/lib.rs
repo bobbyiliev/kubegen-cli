@@ -3,6 +3,11 @@
 //! This library provides the core functionality for the kubegen CLI tool.
 //! Think Kubebuilder, but for Rust.
 
+pub mod error;
+
+// Re-export commonly used types
+pub use error::{KubegenError, Result};
+
 #[cfg(test)]
 mod tests {
     #[test]
