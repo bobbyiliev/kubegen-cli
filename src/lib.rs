@@ -5,6 +5,7 @@
 
 pub mod cli;
 pub mod error;
+pub mod fs;
 pub mod logging;
 
 // Re-export commonly used types
