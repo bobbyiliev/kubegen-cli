@@ -7,9 +7,11 @@ mod metrics;
 mod new;
 #[cfg(test)]
 mod test_utils;
+mod upgrade;
 mod webhook;
 
 pub use crd::execute_add_crd;
 pub use metrics::execute_add_metrics;
 pub use new::execute_new;
+pub use upgrade::execute_upgrade;
 pub use webhook::execute_add_webhook;
