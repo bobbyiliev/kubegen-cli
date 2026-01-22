@@ -353,21 +353,18 @@ test_metrics_endpoint() {
     # Use a curl pod to fetch metrics from within the cluster
     log_info "Fetching metrics from http://${pod_ip}:${METRICS_PORT}/metrics"
 
-    # Create a temporary file for the response
-    local tmp_response
-    tmp_response=$(mktemp)
+    # Run curl in a pod - use --quiet to suppress pod lifecycle messages
+    # Store output in a configmap to reliably retrieve it
+    local metrics_response
 
-    # Run curl in a pod and capture output, filtering out kubectl messages
-    kubectl run curl-test-$$ --rm -i --restart=Never \
+    # Create a job that writes output to a configmap
+    kubectl delete configmap metrics-output -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
+
+    # Run curl and store result
+    metrics_response=$(kubectl run curl-metrics --rm -i --restart=Never --quiet \
         --image=curlimages/curl:latest \
         -n "$TEST_NAMESPACE" \
-        -- curl -s --connect-timeout 10 --max-time 15 "http://${pod_ip}:${METRICS_PORT}/metrics" \
-        > "$tmp_response" 2>&1
-
-    # Read the response, filtering out "pod deleted" messages
-    local metrics_response
-    metrics_response=$(grep -v '^pod "curl-test' "$tmp_response" || true)
-    rm -f "$tmp_response"
+        -- curl -s --connect-timeout 10 --max-time 15 "http://${pod_ip}:${METRICS_PORT}/metrics" 2>/dev/null)
 
     log_info "Metrics response received (${#metrics_response} bytes)"
 
@@ -379,8 +376,28 @@ test_metrics_endpoint() {
     else
         log_error "Metrics endpoint did not return valid Prometheus format"
         log_error "Response length: ${#metrics_response}"
-        log_error "Response: $metrics_response"
-        return 1
+        log_error "First 200 chars: ${metrics_response:0:200}"
+
+        # Debug: try wget as fallback
+        log_info "Trying wget as fallback..."
+        local wget_response
+        wget_response=$(kubectl run wget-metrics --rm -i --restart=Never --quiet \
+            --image=busybox:latest \
+            -n "$TEST_NAMESPACE" \
+            -- wget -qO- --timeout=10 "http://${pod_ip}:${METRICS_PORT}/metrics" 2>/dev/null) || true
+
+        if [ -n "$wget_response" ]; then
+            log_info "wget response (${#wget_response} bytes):"
+            echo "$wget_response" | head -20
+            metrics_response="$wget_response"
+        fi
+
+        # Check again after wget
+        if echo "$metrics_response" | grep -q "# HELP\|# TYPE"; then
+            log_info "Metrics endpoint returned valid Prometheus metrics (via wget)"
+        else
+            return 1
+        fi
     fi
 
     # Check for expected operator metrics
@@ -399,26 +416,17 @@ test_health_endpoint() {
     local pod_ip
     pod_ip=$(kubectl get pods -l "app=$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.items[0].status.podIP}')
 
-    # Create a temporary file for the response
-    local tmp_response
-    tmp_response=$(mktemp)
-
-    # Use a curl pod to fetch health endpoint from within the cluster
-    kubectl run curl-health-$$ --rm -i --restart=Never \
-        --image=curlimages/curl:latest \
+    # Use wget to check health endpoint (simpler output handling)
+    local health_response
+    health_response=$(kubectl run wget-health --rm -i --restart=Never --quiet \
+        --image=busybox:latest \
         -n "$TEST_NAMESPACE" \
-        -- curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 15 "http://${pod_ip}:${METRICS_PORT}/healthz" \
-        > "$tmp_response" 2>&1 || true
+        -- wget -qO- --timeout=10 "http://${pod_ip}:${METRICS_PORT}/healthz" 2>/dev/null) || true
 
-    # Get the HTTP code (last line, excluding pod deletion message)
-    local http_code
-    http_code=$(grep -v '^pod "curl-health' "$tmp_response" | tail -1 || echo "000")
-    rm -f "$tmp_response"
-
-    if [ "$http_code" = "200" ]; then
-        log_info "Health endpoint returned 200 OK"
+    if [ "$health_response" = "ok" ]; then
+        log_info "Health endpoint returned 'ok'"
     else
-        log_warn "Health endpoint returned $http_code (may not be implemented)"
+        log_warn "Health endpoint response: $health_response (may not be implemented)"
     fi
 }
 
