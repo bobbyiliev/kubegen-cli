@@ -1,0 +1,181 @@
+//! Status condition helpers for {{kind}} resources
+//!
+//! This module provides utilities for managing status conditions following
+//! Kubernetes API conventions. Conditions provide a standard way to communicate
+//! the state of a resource.
+
+use chrono::{DateTime, Utc};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+/// A condition represents a specific aspect of the resource's state.
+///
+/// Conditions follow the Kubernetes API conventions:
+/// - `type`: A CamelCase condition type (e.g., "Ready", "Progressing")
+/// - `status`: "True", "False", or "Unknown"
+/// - `reason`: A CamelCase reason for the condition's last transition
+/// - `message`: A human-readable message with details
+/// - `lastTransitionTime`: When the condition last changed
+/// - `observedGeneration`: The generation that was observed
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Condition {
+    /// Type of condition (e.g., "Ready", "Progressing", "Degraded")
+    #[serde(rename = "type")]
+    pub condition_type: String,
+
+    /// Status of the condition: "True", "False", or "Unknown"
+    pub status: ConditionStatus,
+
+    /// One-word CamelCase reason for the condition's last transition
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+
+    /// Human-readable message with details about the condition
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+
+    /// Last time the condition transitioned from one status to another
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_transition_time: Option<DateTime<Utc>>,
+
+    /// The generation that was last observed
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_generation: Option<i64>,
+}
+
+/// Status of a condition
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub enum ConditionStatus {
+    /// Condition is true
+    True,
+    /// Condition is false
+    False,
+    /// Condition status is unknown
+    Unknown,
+}
+
+impl std::fmt::Display for ConditionStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConditionStatus::True => write!(f, "True"),
+            ConditionStatus::False => write!(f, "False"),
+            ConditionStatus::Unknown => write!(f, "Unknown"),
+        }
+    }
+}
+
+impl Condition {
+    /// Create a new condition
+    pub fn new(condition_type: impl Into<String>, status: ConditionStatus) -> Self {
+        Self {
+            condition_type: condition_type.into(),
+            status,
+            reason: None,
+            message: None,
+            last_transition_time: Some(Utc::now()),
+            observed_generation: None,
+        }
+    }
+
+    /// Set the reason for this condition
+    pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
+        self.reason = Some(reason.into());
+        self
+    }
+
+    /// Set the message for this condition
+    pub fn with_message(mut self, message: impl Into<String>) -> Self {
+        self.message = Some(message.into());
+        self
+    }
+
+    /// Set the observed generation for this condition
+    pub fn with_observed_generation(mut self, generation: i64) -> Self {
+        self.observed_generation = Some(generation);
+        self
+    }
+
+    /// Create a "Ready" condition that is true
+    pub fn ready() -> Self {
+        Self::new("Ready", ConditionStatus::True)
+            .with_reason("ReconcileSucceeded")
+            .with_message("Resource is ready")
+    }
+
+    /// Create a "Ready" condition that is false
+    pub fn not_ready(reason: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new("Ready", ConditionStatus::False)
+            .with_reason(reason)
+            .with_message(message)
+    }
+
+    /// Create a "Progressing" condition
+    pub fn progressing(message: impl Into<String>) -> Self {
+        Self::new("Progressing", ConditionStatus::True)
+            .with_reason("Reconciling")
+            .with_message(message)
+    }
+
+    /// Create a "Degraded" condition
+    pub fn degraded(reason: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new("Degraded", ConditionStatus::True)
+            .with_reason(reason)
+            .with_message(message)
+    }
+}
+
+/// Helper trait for managing conditions on a status object
+pub trait ConditionManager {
+    /// Get a reference to the conditions list
+    fn conditions(&self) -> &[Condition];
+
+    /// Get a mutable reference to the conditions list
+    fn conditions_mut(&mut self) -> &mut Vec<Condition>;
+
+    /// Find a condition by type
+    fn get_condition(&self, condition_type: &str) -> Option<&Condition> {
+        self.conditions()
+            .iter()
+            .find(|c| c.condition_type == condition_type)
+    }
+
+    /// Check if a condition is true
+    fn is_condition_true(&self, condition_type: &str) -> bool {
+        self.get_condition(condition_type)
+            .map(|c| c.status == ConditionStatus::True)
+            .unwrap_or(false)
+    }
+
+    /// Set or update a condition
+    ///
+    /// If a condition with the same type exists, it will be updated.
+    /// The `lastTransitionTime` is only updated if the status changed.
+    fn set_condition(&mut self, mut condition: Condition) {
+        let conditions = self.conditions_mut();
+
+        if let Some(existing) = conditions
+            .iter_mut()
+            .find(|c| c.condition_type == condition.condition_type)
+        {
+            // Only update transition time if status changed
+            if existing.status == condition.status {
+                condition.last_transition_time = existing.last_transition_time;
+            }
+            *existing = condition;
+        } else {
+            conditions.push(condition);
+        }
+    }
+
+    /// Remove a condition by type
+    fn remove_condition(&mut self, condition_type: &str) {
+        self.conditions_mut()
+            .retain(|c| c.condition_type != condition_type);
+    }
+
+    /// Check if the resource is ready (has Ready=True condition)
+    fn is_ready(&self) -> bool {
+        self.is_condition_true("Ready")
+    }
+}

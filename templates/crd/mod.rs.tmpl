@@ -2,9 +2,11 @@
 
 pub mod controller;
 pub mod finalizer;
+pub mod status;
 pub mod types;
 
 pub use finalizer::FINALIZER;
+pub use status::{Condition, ConditionManager, ConditionStatus};
 pub use types::{{kind}};
 pub use types::{{kind}}Spec;
 pub use types::{{kind}}Status;
