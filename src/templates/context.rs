@@ -116,8 +116,10 @@ pub struct CrdContext {
     pub version: String,
     /// CRD kind (e.g., "MyResource")
     pub kind: String,
-    /// CRD kind in snake_case
+    /// CRD kind in snake_case (e.g., "my_resource")
     pub kind_snake: String,
+    /// CRD kind in kebab-case for DNS names (e.g., "my-resource")
+    pub kind_kebab: String,
     /// Plural form of the kind (e.g., "myresources")
     pub plural: String,
     /// Short name for the CRD (e.g., "mr")
@@ -141,6 +143,7 @@ impl CrdContext {
         ctx.set("version", &self.version);
         ctx.set("kind", &self.kind);
         ctx.set("kind_snake", &self.kind_snake);
+        ctx.set("kind_kebab", &self.kind_kebab);
         ctx.set("plural", &self.plural);
         ctx.set("short_name", &self.short_name);
         ctx.set(
@@ -206,6 +209,7 @@ impl CrdContextBuilder {
     pub fn build(self) -> Option<CrdContext> {
         let kind = self.kind?;
         let kind_snake = to_snake_case(&kind);
+        let kind_kebab = to_kebab_case(&kind);
         let plural = pluralize(&kind);
         let short_name = generate_short_name(&kind);
 
@@ -213,6 +217,7 @@ impl CrdContextBuilder {
             group: self.group?,
             version: self.version?,
             kind_snake,
+            kind_kebab,
             kind,
             plural,
             short_name,
@@ -275,6 +280,30 @@ fn to_snake_case(s: &str) -> String {
     result
 }
 
+/// Convert a string to kebab-case (DNS-1035 compatible)
+fn to_kebab_case(s: &str) -> String {
+    let mut result = String::with_capacity(s.len() + 4);
+    let mut prev_lower = false;
+
+    for c in s.chars() {
+        if c.is_uppercase() {
+            if prev_lower {
+                result.push('-');
+            }
+            result.push(c.to_ascii_lowercase());
+            prev_lower = false;
+        } else if c == '_' {
+            result.push('-');
+            prev_lower = false;
+        } else {
+            result.push(c);
+            prev_lower = c.is_lowercase();
+        }
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -308,6 +337,32 @@ mod tests {
     #[test]
     fn test_snake_case_mixed() {
         assert_eq!(to_snake_case("MyHTTPServer"), "my_httpserver");
+    }
+
+    // to_kebab_case tests
+    #[test]
+    fn test_kebab_case_simple() {
+        assert_eq!(to_kebab_case("MyResource"), "my-resource");
+    }
+
+    #[test]
+    fn test_kebab_case_already_kebab() {
+        assert_eq!(to_kebab_case("my-resource"), "my-resource");
+    }
+
+    #[test]
+    fn test_kebab_case_from_snake() {
+        assert_eq!(to_kebab_case("my_resource"), "my-resource");
+    }
+
+    #[test]
+    fn test_kebab_case_lowercase() {
+        assert_eq!(to_kebab_case("resource"), "resource");
+    }
+
+    #[test]
+    fn test_kebab_case_test_resource() {
+        assert_eq!(to_kebab_case("TestResource"), "test-resource");
     }
 
     // ProjectContext tests
@@ -443,6 +498,7 @@ mod tests {
         assert_eq!(ctx.version, "v1");
         assert_eq!(ctx.kind, "MyResource");
         assert_eq!(ctx.kind_snake, "my_resource");
+        assert_eq!(ctx.kind_kebab, "my-resource");
         assert_eq!(ctx.plural, "myresources");
         assert_eq!(ctx.short_name, "mr");
         assert!(!ctx.with_controller);
@@ -511,6 +567,7 @@ mod tests {
         assert_eq!(ctx.get("version"), Some(&"v1".to_string()));
         assert_eq!(ctx.get("kind"), Some(&"MyResource".to_string()));
         assert_eq!(ctx.get("kind_snake"), Some(&"my_resource".to_string()));
+        assert_eq!(ctx.get("kind_kebab"), Some(&"my-resource".to_string()));
         assert_eq!(ctx.get("plural"), Some(&"myresources".to_string()));
         assert_eq!(ctx.get("short_name"), Some(&"mr".to_string()));
         assert_eq!(ctx.get("with_controller"), Some(&"true".to_string()));
@@ -571,6 +628,7 @@ mod tests {
             "version": "v1",
             "kind": "MyResource",
             "kind_snake": "my_resource",
+            "kind_kebab": "my-resource",
             "plural": "myresources",
             "short_name": "mr",
             "with_controller": true,
@@ -582,6 +640,7 @@ mod tests {
         assert!(!ctx.with_status);
         assert_eq!(ctx.plural, "myresources");
         assert_eq!(ctx.short_name, "mr");
+        assert_eq!(ctx.kind_kebab, "my-resource");
     }
 
     // Clone and equality tests
