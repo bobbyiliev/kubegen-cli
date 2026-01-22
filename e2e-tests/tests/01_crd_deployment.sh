@@ -98,7 +98,7 @@ test_deploy_crd() {
     kubectl_apply "manifests/test_resource-crd.yaml"
 
     # Wait for CRD to be established
-    local crd_name="testresources.${TEST_GROUP}"
+    local crd_name="testresourcess.${TEST_GROUP}"
     kubectl_wait_for "crd" "$crd_name"
 
     # Verify CRD is established
@@ -123,11 +123,11 @@ test_create_cr() {
     kubectl apply -f "$example_file" -n "$TEST_NAMESPACE"
 
     # Verify CR was created
-    kubectl_wait_for "testresource" "example-test-resource" "$TEST_NAMESPACE"
+    kubectl_wait_for "testresources" "example-test-resource" "$TEST_NAMESPACE"
 
     # Get the CR and verify it exists
     local cr_json
-    cr_json=$(kubectl get testresource example-test-resource -n "$TEST_NAMESPACE" -o json)
+    cr_json=$(kubectl get testresources example-test-resource -n "$TEST_NAMESPACE" -o json)
 
     assert_json_field "$cr_json" ".kind" "TestResource"
     assert_json_field "$cr_json" ".apiVersion" "${TEST_GROUP}/${TEST_VERSION}"
@@ -142,7 +142,7 @@ test_cr_status() {
 
     # Get CR
     local cr_json
-    cr_json=$(kubectl get testresource example-test-resource -n "$TEST_NAMESPACE" -o json)
+    cr_json=$(kubectl get testresources example-test-resource -n "$TEST_NAMESPACE" -o json)
 
     # Verify spec exists
     local spec
@@ -158,11 +158,11 @@ test_cr_status() {
 test_delete_cr() {
     log_info "Testing CR deletion..."
 
-    kubectl delete testresource example-test-resource -n "$TEST_NAMESPACE"
+    kubectl delete testresources example-test-resource -n "$TEST_NAMESPACE"
 
     # Verify CR is deleted
     sleep 2
-    if kubectl get testresource example-test-resource -n "$TEST_NAMESPACE" &>/dev/null; then
+    if kubectl get testresources example-test-resource -n "$TEST_NAMESPACE" &>/dev/null; then
         log_error "CR still exists after deletion"
         return 1
     fi
