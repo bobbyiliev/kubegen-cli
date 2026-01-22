@@ -172,7 +172,7 @@ RUN cargo build --release
 # Runtime stage
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates libssl3 curl && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/e2e-metrics /usr/local/bin/operator
 
@@ -349,57 +349,17 @@ test_metrics_endpoint() {
     pod_name=$(kubectl get pods -l "app=$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.items[0].metadata.name}')
     log_info "Operator pod: ${pod_name}"
 
-    # Use port-forward with proper temp file handling
-    local tmp_output
-    tmp_output=$(mktemp)
-    local tmp_pf_log
-    tmp_pf_log=$(mktemp)
+    # Simple approach: exec into the pod and curl localhost
+    # This avoids all port-forward complexity
+    log_info "Fetching metrics from inside the pod..."
 
-    # Start port-forward in background, redirect its output to a file
-    kubectl port-forward "pod/${pod_name}" -n "$TEST_NAMESPACE" 19090:${METRICS_PORT} > "$tmp_pf_log" 2>&1 &
-    local pf_pid=$!
-
-    # Wait for port-forward to be ready by checking the log file
-    local max_wait=30
-    local waited=0
-    while [ $waited -lt $max_wait ]; do
-        if grep -q "Forwarding from" "$tmp_pf_log" 2>/dev/null; then
-            log_info "Port-forward ready"
-            break
-        fi
-        sleep 1
-        waited=$((waited + 1))
-    done
-
-    if [ $waited -ge $max_wait ]; then
-        log_error "Port-forward did not become ready"
-        cat "$tmp_pf_log"
-        kill $pf_pid 2>/dev/null || true
-        rm -f "$tmp_output" "$tmp_pf_log"
-        return 1
-    fi
-
-    # Small additional delay to ensure connection is fully established
-    sleep 2
-
-    # Fetch metrics using curl with output to file
-    curl -s --connect-timeout 10 --max-time 15 "http://127.0.0.1:19090/metrics" > "$tmp_output" 2>&1
-    local curl_exit=$?
-
-    # Kill port-forward
-    kill $pf_pid 2>/dev/null || true
-    wait $pf_pid 2>/dev/null || true
-
-    # Read the response
     local metrics_response
-    metrics_response=$(cat "$tmp_output")
+    metrics_response=$(kubectl exec "$pod_name" -n "$TEST_NAMESPACE" -- curl -s "http://localhost:${METRICS_PORT}/metrics" 2>&1)
+    local curl_exit=$?
     local response_size=${#metrics_response}
 
     log_info "Curl exit code: ${curl_exit}"
     log_info "Metrics response received (${response_size} bytes)"
-
-    # Cleanup temp files
-    rm -f "$tmp_output" "$tmp_pf_log"
 
     # Verify response contains Prometheus metrics
     if echo "$metrics_response" | grep -q "# HELP\|# TYPE"; then
@@ -428,34 +388,9 @@ test_health_endpoint() {
     local pod_name
     pod_name=$(kubectl get pods -l "app=$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.items[0].metadata.name}')
 
-    local tmp_pf_log
-    tmp_pf_log=$(mktemp)
-
-    # Start port-forward
-    kubectl port-forward "pod/${pod_name}" -n "$TEST_NAMESPACE" 19091:${METRICS_PORT} > "$tmp_pf_log" 2>&1 &
-    local pf_pid=$!
-
-    # Wait for port-forward to be ready
-    local max_wait=15
-    local waited=0
-    while [ $waited -lt $max_wait ]; do
-        if grep -q "Forwarding from" "$tmp_pf_log" 2>/dev/null; then
-            break
-        fi
-        sleep 1
-        waited=$((waited + 1))
-    done
-
-    sleep 1
-
-    # Fetch health endpoint
+    # Simple approach: exec into the pod and curl localhost
     local health_response
-    health_response=$(curl -s --connect-timeout 5 --max-time 10 "http://127.0.0.1:19091/healthz" 2>&1) || true
-
-    # Cleanup
-    kill $pf_pid 2>/dev/null || true
-    wait $pf_pid 2>/dev/null || true
-    rm -f "$tmp_pf_log"
+    health_response=$(kubectl exec "$pod_name" -n "$TEST_NAMESPACE" -- curl -s "http://localhost:${METRICS_PORT}/healthz" 2>&1) || true
 
     if [ "$health_response" = "ok" ]; then
         log_info "Health endpoint returned 'ok'"
