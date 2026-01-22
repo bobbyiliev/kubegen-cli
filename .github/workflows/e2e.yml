@@ -1,0 +1,75 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CLUSTER_NAME: kubegen-e2e
+
+jobs:
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build kubegen
+        run: cargo build --release
+
+      - name: Setup kind
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          wait: 120s
+
+      - name: Verify cluster
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Run e2e tests
+        run: |
+          # Skip cluster creation since kind-action already created it
+          export SKIP_CLUSTER_CREATE=true
+          ./e2e-tests/run-tests.sh
+        env:
+          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== Node Status ==="
+          kubectl get nodes -o wide || true
+          echo ""
+          echo "=== All Pods ==="
+          kubectl get pods -A || true
+          echo ""
+          echo "=== Pod Descriptions ==="
+          kubectl describe pods -A || true
+          echo ""
+          echo "=== Events ==="
+          kubectl get events -A --sort-by='.lastTimestamp' || true
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure-logs
+          path: |
+            /tmp/kubegen-e2e-*.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Cleanup
+        if: always()
+        run: kind delete cluster --name ${{ env.CLUSTER_NAME }} || true
