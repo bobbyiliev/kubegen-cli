@@ -107,6 +107,7 @@ fn get_paths_to_create(crd_dir: &Path) -> Vec<std::path::PathBuf> {
         crd_dir.join("mod.rs"),
         crd_dir.join("types.rs"),
         crd_dir.join("controller.rs"),
+        crd_dir.join("status.rs"),
     ]
 }
 
@@ -126,6 +127,9 @@ fn execute_dry_run(crd_dir: &Path, ctx: &TemplateContext) -> Result<()> {
 
     let controller_content = render_template(&renderer, "crd/controller.rs.tmpl", ctx)?;
     dry_run.plan_file(crd_dir.join("controller.rs"), &controller_content);
+
+    let status_content = render_template(&renderer, "crd/status.rs.tmpl", ctx)?;
+    dry_run.plan_file(crd_dir.join("status.rs"), &status_content);
 
     println!("{}", dry_run.format_preview());
     Ok(())
@@ -153,6 +157,11 @@ fn create_crd_structure(crd_dir: &Path, ctx: &TemplateContext, opts: &WriteOptio
     let controller_content = render_template(&renderer, "crd/controller.rs.tmpl", ctx)?;
     debug!("Writing controller.rs");
     write_file_protected(crd_dir.join("controller.rs"), &controller_content, opts)?;
+
+    // Render and write status.rs
+    let status_content = render_template(&renderer, "crd/status.rs.tmpl", ctx)?;
+    debug!("Writing status.rs");
+    write_file_protected(crd_dir.join("status.rs"), &status_content, opts)?;
 
     Ok(())
 }
@@ -211,6 +220,7 @@ mod tests {
         assert!(temp.path().join("src/my_resource/mod.rs").exists());
         assert!(temp.path().join("src/my_resource/types.rs").exists());
         assert!(temp.path().join("src/my_resource/controller.rs").exists());
+        assert!(temp.path().join("src/my_resource/status.rs").exists());
     }
 
     #[test]
@@ -317,6 +327,7 @@ mod tests {
         assert!(paths.contains(&crd_dir.join("mod.rs")));
         assert!(paths.contains(&crd_dir.join("types.rs")));
         assert!(paths.contains(&crd_dir.join("controller.rs")));
+        assert!(paths.contains(&crd_dir.join("status.rs")));
     }
 
     #[test]

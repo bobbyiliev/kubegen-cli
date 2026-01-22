@@ -1,8 +1,10 @@
 //! {{kind}} CRD module
 
 pub mod controller;
+pub mod status;
 pub mod types;
 
+pub use status::{Condition, ConditionManager, ConditionStatus};
 pub use types::{{kind}};
 pub use types::{{kind}}Spec;
 pub use types::{{kind}}Status;

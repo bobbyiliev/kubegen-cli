@@ -169,6 +169,20 @@ mod tests {
     }
 
     #[test]
+    fn test_get_template_crd_status() {
+        let content = get_template("crd/status.rs.tmpl");
+        assert!(content.is_ok());
+        let content = content.unwrap();
+        assert!(content.contains("Condition"));
+        assert!(content.contains("ConditionStatus"));
+        assert!(content.contains("ConditionManager"));
+        assert!(content.contains("is_ready"));
+        assert!(content.contains("set_condition"));
+        assert!(content.contains("get_condition"));
+        assert!(content.contains("lastTransitionTime"));
+    }
+
+    #[test]
     fn test_get_template_webhook_mod() {
         let content = get_template("webhook/mod.rs.tmpl");
         assert!(content.is_ok());
