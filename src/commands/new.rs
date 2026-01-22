@@ -104,8 +104,7 @@ fn execute_dry_run(
     let readme_content = render_template(&renderer, "project/README.md.tmpl", ctx, template_dir)?;
     dry_run.plan_file(project_dir.join("README.md"), &readme_content);
 
-    let makefile_content =
-        render_template(&renderer, "project/Makefile.tmpl", ctx, template_dir)?;
+    let makefile_content = render_template(&renderer, "project/Makefile.tmpl", ctx, template_dir)?;
     dry_run.plan_file(project_dir.join("Makefile"), &makefile_content);
 
     let gitignore_content =
@@ -150,8 +149,7 @@ fn create_project_structure(
     write_file_protected(project_dir.join("README.md"), &readme_content, opts)?;
 
     // Render and write Makefile
-    let makefile_content =
-        render_template(&renderer, "project/Makefile.tmpl", ctx, template_dir)?;
+    let makefile_content = render_template(&renderer, "project/Makefile.tmpl", ctx, template_dir)?;
     debug!("Writing Makefile");
     write_file_protected(project_dir.join("Makefile"), &makefile_content, opts)?;
 

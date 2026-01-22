@@ -610,10 +610,7 @@ mod tests {
             "new",
             "test",
         ]);
-        assert_eq!(
-            cli.template_dir,
-            Some(PathBuf::from("/path/to/templates"))
-        );
+        assert_eq!(cli.template_dir, Some(PathBuf::from("/path/to/templates")));
     }
 
     #[test]
@@ -643,27 +640,9 @@ mod tests {
     #[test]
     fn test_template_dir_global_flag() {
         // Template dir can appear before or after subcommand
-        let cli1 = Cli::parse_from([
-            "kubegen",
-            "--template-dir",
-            "/path",
-            "new",
-            "test",
-        ]);
-        let cli2 = Cli::parse_from([
-            "kubegen",
-            "new",
-            "--template-dir",
-            "/path",
-            "test",
-        ]);
-        let cli3 = Cli::parse_from([
-            "kubegen",
-            "new",
-            "test",
-            "--template-dir",
-            "/path",
-        ]);
+        let cli1 = Cli::parse_from(["kubegen", "--template-dir", "/path", "new", "test"]);
+        let cli2 = Cli::parse_from(["kubegen", "new", "--template-dir", "/path", "test"]);
+        let cli3 = Cli::parse_from(["kubegen", "new", "test", "--template-dir", "/path"]);
 
         assert_eq!(cli1.template_dir, Some(PathBuf::from("/path")));
         assert_eq!(cli2.template_dir, Some(PathBuf::from("/path")));

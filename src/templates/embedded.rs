@@ -511,14 +511,16 @@ mod tests {
         let template_dir = temp.path();
 
         // Template doesn't exist in custom dir or embedded
-        let result =
-            get_template_with_override("nonexistent/template.tmpl", Some(template_dir));
+        let result = get_template_with_override("nonexistent/template.tmpl", Some(template_dir));
         assert!(result.is_err());
     }
 
     #[test]
     fn test_template_exists_with_override_no_custom_dir() {
-        assert!(template_exists_with_override("project/Cargo.toml.tmpl", None));
+        assert!(template_exists_with_override(
+            "project/Cargo.toml.tmpl",
+            None
+        ));
         assert!(!template_exists_with_override("nonexistent.tmpl", None));
     }
 

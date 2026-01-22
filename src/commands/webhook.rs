@@ -219,12 +219,15 @@ fn execute_dry_run(
     }
 
     // Always generate cert-manager resources for webhooks
-    let certificate_content =
-        render_template(&renderer, "webhook/certificate.yaml.tmpl", ctx, template_dir)?;
+    let certificate_content = render_template(
+        &renderer,
+        "webhook/certificate.yaml.tmpl",
+        ctx,
+        template_dir,
+    )?;
     dry_run.plan_file(manifests_dir.join("certificate.yaml"), &certificate_content);
 
-    let issuer_content =
-        render_template(&renderer, "webhook/issuer.yaml.tmpl", ctx, template_dir)?;
+    let issuer_content = render_template(&renderer, "webhook/issuer.yaml.tmpl", ctx, template_dir)?;
     dry_run.plan_file(manifests_dir.join("issuer.yaml"), &issuer_content);
 
     println!("{}", dry_run.format_preview());
@@ -300,8 +303,12 @@ fn create_webhook_structure(
     }
 
     // Always generate cert-manager resources for webhooks
-    let certificate_content =
-        render_template(&renderer, "webhook/certificate.yaml.tmpl", ctx, template_dir)?;
+    let certificate_content = render_template(
+        &renderer,
+        "webhook/certificate.yaml.tmpl",
+        ctx,
+        template_dir,
+    )?;
     debug!("Writing certificate.yaml");
     write_file_protected(
         manifests_dir.join("certificate.yaml"),
@@ -309,8 +316,7 @@ fn create_webhook_structure(
         opts,
     )?;
 
-    let issuer_content =
-        render_template(&renderer, "webhook/issuer.yaml.tmpl", ctx, template_dir)?;
+    let issuer_content = render_template(&renderer, "webhook/issuer.yaml.tmpl", ctx, template_dir)?;
     debug!("Writing issuer.yaml");
     write_file_protected(manifests_dir.join("issuer.yaml"), &issuer_content, opts)?;
 

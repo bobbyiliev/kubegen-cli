@@ -202,8 +202,7 @@ fn execute_dry_run(
         render_template(&renderer, "crd/controller.rs.tmpl", ctx, template_dir)?;
     dry_run.plan_file(crd_dir.join("controller.rs"), &controller_content);
 
-    let finalizer_content =
-        render_template(&renderer, "crd/finalizer.rs.tmpl", ctx, template_dir)?;
+    let finalizer_content = render_template(&renderer, "crd/finalizer.rs.tmpl", ctx, template_dir)?;
     dry_run.plan_file(crd_dir.join("finalizer.rs"), &finalizer_content);
 
     let status_content = render_template(&renderer, "crd/status.rs.tmpl", ctx, template_dir)?;
@@ -215,8 +214,7 @@ fn execute_dry_run(
         &example_content,
     );
 
-    let crd_manifest_content =
-        render_template(&renderer, "crd/crd.yaml.tmpl", ctx, template_dir)?;
+    let crd_manifest_content = render_template(&renderer, "crd/crd.yaml.tmpl", ctx, template_dir)?;
     dry_run.plan_file(
         manifests_dir.join(format!("{}-crd.yaml", kind_snake)),
         &crd_manifest_content,
@@ -267,8 +265,7 @@ fn create_crd_structure(
     write_file_protected(crd_dir.join("controller.rs"), &controller_content, opts)?;
 
     // Render and write finalizer.rs
-    let finalizer_content =
-        render_template(&renderer, "crd/finalizer.rs.tmpl", ctx, template_dir)?;
+    let finalizer_content = render_template(&renderer, "crd/finalizer.rs.tmpl", ctx, template_dir)?;
     debug!("Writing finalizer.rs");
     write_file_protected(crd_dir.join("finalizer.rs"), &finalizer_content, opts)?;
 
@@ -287,8 +284,7 @@ fn create_crd_structure(
     )?;
 
     // Render and write CRD manifest YAML
-    let crd_manifest_content =
-        render_template(&renderer, "crd/crd.yaml.tmpl", ctx, template_dir)?;
+    let crd_manifest_content = render_template(&renderer, "crd/crd.yaml.tmpl", ctx, template_dir)?;
     debug!("Writing {}-crd.yaml", kind_snake);
     write_file_protected(
         manifests_dir.join(format!("{}-crd.yaml", kind_snake)),
