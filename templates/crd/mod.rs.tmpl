@@ -1,8 +1,10 @@
 //! {{kind}} CRD module
 
 pub mod controller;
+pub mod finalizer;
 pub mod types;
 
+pub use finalizer::FINALIZER;
 pub use types::{{kind}};
 pub use types::{{kind}}Spec;
 pub use types::{{kind}}Status;
