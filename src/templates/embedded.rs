@@ -150,6 +150,19 @@ mod tests {
     }
 
     #[test]
+    fn test_get_template_crd_finalizer() {
+        let content = get_template("crd/finalizer.rs.tmpl");
+        assert!(content.is_ok());
+        let content = content.unwrap();
+        assert!(content.contains("{{kind}}"));
+        assert!(content.contains("FINALIZER"));
+        assert!(content.contains("has_finalizer"));
+        assert!(content.contains("add_finalizer"));
+        assert!(content.contains("remove_finalizer"));
+        assert!(content.contains("is_deleting"));
+    }
+
+    #[test]
     fn test_get_template_webhook_mod() {
         let content = get_template("webhook/mod.rs.tmpl");
         assert!(content.is_ok());

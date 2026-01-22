@@ -1,0 +1,72 @@
+//! Finalizer helpers for {{kind}} resources
+//!
+//! This module provides utility functions for managing finalizers on {{kind}} resources.
+//! Finalizers ensure that cleanup logic runs before a resource is deleted.
+
+use kube::{
+    api::{Api, Patch, PatchParams},
+    ResourceExt,
+};
+use serde_json::json;
+
+use crate::error::{Error, Result};
+use crate::{{kind_snake}}::types::{{kind}};
+
+/// Finalizer name for {{kind}} resources
+pub const FINALIZER: &str = "{{group}}/{{kind_snake}}-finalizer";
+
+/// Check if a resource has our finalizer
+pub fn has_finalizer(resource: &{{kind}}) -> bool {
+    resource
+        .metadata
+        .finalizers
+        .as_ref()
+        .map(|f| f.contains(&FINALIZER.to_string()))
+        .unwrap_or(false)
+}
+
+/// Check if a resource is being deleted (has deletion timestamp)
+pub fn is_deleting(resource: &{{kind}}) -> bool {
+    resource.metadata.deletion_timestamp.is_some()
+}
+
+/// Add our finalizer to a resource
+///
+/// This should be called early in reconciliation to ensure cleanup runs on deletion.
+pub async fn add_finalizer(api: &Api<{{kind}}>, name: &str) -> Result<{{kind}}> {
+    let patch = json!({
+        "metadata": {
+            "finalizers": [FINALIZER]
+        }
+    });
+
+    api.patch(name, &PatchParams::apply("{{project_name}}"), &Patch::Merge(&patch))
+        .await
+        .map_err(Error::KubeError)
+}
+
+/// Remove our finalizer from a resource
+///
+/// This should be called after cleanup is complete to allow deletion to proceed.
+pub async fn remove_finalizer(api: &Api<{{kind}}>, name: &str) -> Result<{{kind}}> {
+    let patch = json!({
+        "metadata": {
+            "finalizers": null
+        }
+    });
+
+    api.patch(name, &PatchParams::apply("{{project_name}}"), &Patch::Merge(&patch))
+        .await
+        .map_err(Error::KubeError)
+}
+
+/// Ensure the finalizer is present on a resource
+///
+/// This is idempotent - if the finalizer is already present, no action is taken.
+pub async fn ensure_finalizer(api: &Api<{{kind}}>, resource: &{{kind}}) -> Result<Option<{{kind}}>> {
+    if has_finalizer(resource) {
+        Ok(None)
+    } else {
+        add_finalizer(api, &resource.name_any()).await.map(Some)
+    }
+}
