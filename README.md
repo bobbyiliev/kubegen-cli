@@ -28,6 +28,59 @@ Think Kubebuilder, but for Rust.
 
 Early development. APIs and templates may change.
 
+## Installation
+
+### From crates.io (Recommended)
+
+```bash
+cargo install kubegen
+```
+
+### Homebrew (macOS/Linux)
+
+```bash
+brew tap bobbyiliev/kubegen
+brew install kubegen
+```
+
+### Download Binary
+
+Download the latest release for your platform from the [releases page](https://github.com/bobbyiliev/kubegen-cli/releases).
+
+**Linux (x86_64)**
+```bash
+curl -LO https://github.com/bobbyiliev/kubegen-cli/releases/latest/download/kubegen-x86_64-unknown-linux-gnu.tar.gz
+tar xzf kubegen-x86_64-unknown-linux-gnu.tar.gz
+sudo mv kubegen /usr/local/bin/
+```
+
+**macOS (Apple Silicon)**
+```bash
+curl -LO https://github.com/bobbyiliev/kubegen-cli/releases/latest/download/kubegen-aarch64-apple-darwin.tar.gz
+tar xzf kubegen-aarch64-apple-darwin.tar.gz
+sudo mv kubegen /usr/local/bin/
+```
+
+**macOS (Intel)**
+```bash
+curl -LO https://github.com/bobbyiliev/kubegen-cli/releases/latest/download/kubegen-x86_64-apple-darwin.tar.gz
+tar xzf kubegen-x86_64-apple-darwin.tar.gz
+sudo mv kubegen /usr/local/bin/
+```
+
+**Windows**
+
+Download `kubegen-x86_64-pc-windows-msvc.zip` from the [releases page](https://github.com/bobbyiliev/kubegen-cli/releases) and add to your PATH.
+
+### Build from Source
+
+```bash
+git clone https://github.com/bobbyiliev/kubegen-cli.git
+cd kubegen-cli
+cargo build --release
+# Binary will be at target/release/kubegen
+```
+
 ## Usage
 
 ```bash
