@@ -69,12 +69,21 @@ impl Metrics {
             .register(Box::new(reconciliation_duration_seconds.clone()))
             .expect("metric can be registered");
 
-        Self {
+        let metrics = Self {
             registry,
             reconciliations_total,
             reconciliation_errors_total,
             reconciliation_duration_seconds,
-        }
+        };
+
+        // Initialize metrics with default labels so they appear in /metrics output
+        // even before any reconciliations have occurred
+        metrics.reconciliations_total.with_label_values(&["default", "success"]);
+        metrics.reconciliations_total.with_label_values(&["default", "error"]);
+        metrics.reconciliation_errors_total.with_label_values(&["default", "unknown"]);
+        metrics.reconciliation_duration_seconds.with_label_values(&["default"]);
+
+        metrics
     }
 
     /// Record a successful reconciliation
