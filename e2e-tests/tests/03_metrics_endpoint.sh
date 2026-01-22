@@ -350,21 +350,55 @@ test_metrics_endpoint() {
     pod_ip=$(kubectl get pods -l "app=$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.items[0].status.podIP}')
     log_info "Pod IP: ${pod_ip}"
 
-    # Use a curl pod to fetch metrics from within the cluster
     log_info "Fetching metrics from http://${pod_ip}:${METRICS_PORT}/metrics"
 
-    # Run curl in a pod - use --quiet to suppress pod lifecycle messages
-    # Store output in a configmap to reliably retrieve it
+    # Use a Job to fetch metrics and store in a ConfigMap - most reliable approach
+    local job_name="curl-metrics-$$"
+    local cm_name="metrics-result-$$"
+
+    # Clean up any existing resources
+    kubectl delete job "$job_name" -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
+    kubectl delete configmap "$cm_name" -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
+
+    # Create a job that fetches metrics and stores in a configmap
+    cat <<EOF | kubectl apply -n "$TEST_NAMESPACE" -f -
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${job_name}
+spec:
+  ttlSecondsAfterFinished: 60
+  template:
+    spec:
+      containers:
+      - name: curl
+        image: curlimages/curl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          curl -s --connect-timeout 10 --max-time 15 "http://${pod_ip}:${METRICS_PORT}/metrics" > /tmp/metrics.txt
+          echo "CURL_EXIT_CODE=\$?" >> /tmp/metrics.txt
+          cat /tmp/metrics.txt
+      restartPolicy: Never
+  backoffLimit: 1
+EOF
+
+    # Wait for job to complete
+    log_info "Waiting for curl job to complete..."
+    kubectl wait --for=condition=complete --timeout=60s "job/$job_name" -n "$TEST_NAMESPACE" || {
+        log_error "Curl job did not complete"
+        kubectl logs "job/$job_name" -n "$TEST_NAMESPACE" || true
+        kubectl delete job "$job_name" -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
+        return 1
+    }
+
+    # Get the job output from logs
     local metrics_response
+    metrics_response=$(kubectl logs "job/$job_name" -n "$TEST_NAMESPACE" 2>/dev/null | grep -v '^CURL_EXIT_CODE=' || true)
 
-    # Create a job that writes output to a configmap
-    kubectl delete configmap metrics-output -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
-
-    # Run curl and store result
-    metrics_response=$(kubectl run curl-metrics --rm -i --restart=Never --quiet \
-        --image=curlimages/curl:latest \
-        -n "$TEST_NAMESPACE" \
-        -- curl -s --connect-timeout 10 --max-time 15 "http://${pod_ip}:${METRICS_PORT}/metrics" 2>/dev/null)
+    # Clean up
+    kubectl delete job "$job_name" -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
 
     log_info "Metrics response received (${#metrics_response} bytes)"
 
@@ -376,28 +410,8 @@ test_metrics_endpoint() {
     else
         log_error "Metrics endpoint did not return valid Prometheus format"
         log_error "Response length: ${#metrics_response}"
-        log_error "First 200 chars: ${metrics_response:0:200}"
-
-        # Debug: try wget as fallback
-        log_info "Trying wget as fallback..."
-        local wget_response
-        wget_response=$(kubectl run wget-metrics --rm -i --restart=Never --quiet \
-            --image=busybox:latest \
-            -n "$TEST_NAMESPACE" \
-            -- wget -qO- --timeout=10 "http://${pod_ip}:${METRICS_PORT}/metrics" 2>/dev/null) || true
-
-        if [ -n "$wget_response" ]; then
-            log_info "wget response (${#wget_response} bytes):"
-            echo "$wget_response" | head -20
-            metrics_response="$wget_response"
-        fi
-
-        # Check again after wget
-        if echo "$metrics_response" | grep -q "# HELP\|# TYPE"; then
-            log_info "Metrics endpoint returned valid Prometheus metrics (via wget)"
-        else
-            return 1
-        fi
+        log_error "First 500 chars: ${metrics_response:0:500}"
+        return 1
     fi
 
     # Check for expected operator metrics
@@ -416,17 +430,46 @@ test_health_endpoint() {
     local pod_ip
     pod_ip=$(kubectl get pods -l "app=$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.items[0].status.podIP}')
 
-    # Use wget to check health endpoint (simpler output handling)
+    # Use a Job to check health endpoint - same reliable approach as metrics
+    local job_name="curl-health-$$"
+
+    kubectl delete job "$job_name" -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
+
+    cat <<EOF | kubectl apply -n "$TEST_NAMESPACE" -f -
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${job_name}
+spec:
+  ttlSecondsAfterFinished: 60
+  template:
+    spec:
+      containers:
+      - name: curl
+        image: curlimages/curl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          curl -s --connect-timeout 10 --max-time 15 "http://${pod_ip}:${METRICS_PORT}/healthz"
+      restartPolicy: Never
+  backoffLimit: 1
+EOF
+
+    # Wait for job to complete
+    kubectl wait --for=condition=complete --timeout=30s "job/$job_name" -n "$TEST_NAMESPACE" 2>/dev/null || true
+
+    # Get the response
     local health_response
-    health_response=$(kubectl run wget-health --rm -i --restart=Never --quiet \
-        --image=busybox:latest \
-        -n "$TEST_NAMESPACE" \
-        -- wget -qO- --timeout=10 "http://${pod_ip}:${METRICS_PORT}/healthz" 2>/dev/null) || true
+    health_response=$(kubectl logs "job/$job_name" -n "$TEST_NAMESPACE" 2>/dev/null || true)
+
+    # Clean up
+    kubectl delete job "$job_name" -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
 
     if [ "$health_response" = "ok" ]; then
         log_info "Health endpoint returned 'ok'"
     else
-        log_warn "Health endpoint response: $health_response (may not be implemented)"
+        log_warn "Health endpoint response: '$health_response' (may not be fully implemented)"
     fi
 }
 
