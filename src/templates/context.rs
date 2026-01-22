@@ -118,6 +118,10 @@ pub struct CrdContext {
     pub kind: String,
     /// CRD kind in snake_case
     pub kind_snake: String,
+    /// Plural form of the kind (e.g., "myresources")
+    pub plural: String,
+    /// Short name for the CRD (e.g., "mr")
+    pub short_name: String,
     /// Whether to generate a controller
     pub with_controller: bool,
     /// Whether to generate status subresource
@@ -137,6 +141,8 @@ impl CrdContext {
         ctx.set("version", &self.version);
         ctx.set("kind", &self.kind);
         ctx.set("kind_snake", &self.kind_snake);
+        ctx.set("plural", &self.plural);
+        ctx.set("short_name", &self.short_name);
         ctx.set(
             "with_controller",
             if self.with_controller {
@@ -199,16 +205,50 @@ impl CrdContextBuilder {
     /// Returns None if required fields are missing
     pub fn build(self) -> Option<CrdContext> {
         let kind = self.kind?;
+        let kind_snake = to_snake_case(&kind);
+        let plural = pluralize(&kind);
+        let short_name = generate_short_name(&kind);
 
         Some(CrdContext {
             group: self.group?,
             version: self.version?,
-            kind_snake: to_snake_case(&kind),
+            kind_snake,
             kind,
+            plural,
+            short_name,
             with_controller: self.with_controller,
             with_status: self.with_status,
         })
     }
+}
+
+/// Generate plural form of a kind name (simple English rules)
+fn pluralize(s: &str) -> String {
+    let lower = s.to_lowercase();
+    if lower.ends_with('s')
+        || lower.ends_with('x')
+        || lower.ends_with("ch")
+        || lower.ends_with("sh")
+    {
+        format!("{}es", lower)
+    } else if lower.ends_with('y')
+        && !lower.ends_with("ay")
+        && !lower.ends_with("ey")
+        && !lower.ends_with("oy")
+        && !lower.ends_with("uy")
+    {
+        format!("{}ies", &lower[..lower.len() - 1])
+    } else {
+        format!("{}s", lower)
+    }
+}
+
+/// Generate a short name from a kind (e.g., "MyResource" -> "mr")
+fn generate_short_name(kind: &str) -> String {
+    kind.chars()
+        .filter(|c| c.is_uppercase())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
 }
 
 /// Convert a string to snake_case
@@ -403,6 +443,8 @@ mod tests {
         assert_eq!(ctx.version, "v1");
         assert_eq!(ctx.kind, "MyResource");
         assert_eq!(ctx.kind_snake, "my_resource");
+        assert_eq!(ctx.plural, "myresources");
+        assert_eq!(ctx.short_name, "mr");
         assert!(!ctx.with_controller);
         assert!(!ctx.with_status);
     }
@@ -469,6 +511,8 @@ mod tests {
         assert_eq!(ctx.get("version"), Some(&"v1".to_string()));
         assert_eq!(ctx.get("kind"), Some(&"MyResource".to_string()));
         assert_eq!(ctx.get("kind_snake"), Some(&"my_resource".to_string()));
+        assert_eq!(ctx.get("plural"), Some(&"myresources".to_string()));
+        assert_eq!(ctx.get("short_name"), Some(&"mr".to_string()));
         assert_eq!(ctx.get("with_controller"), Some(&"true".to_string()));
         assert_eq!(ctx.get("with_status"), Some(&"false".to_string()));
     }
@@ -527,6 +571,8 @@ mod tests {
             "version": "v1",
             "kind": "MyResource",
             "kind_snake": "my_resource",
+            "plural": "myresources",
+            "short_name": "mr",
             "with_controller": true,
             "with_status": false
         }"#;
@@ -534,6 +580,8 @@ mod tests {
         let ctx: CrdContext = serde_json::from_str(json).unwrap();
         assert!(ctx.with_controller);
         assert!(!ctx.with_status);
+        assert_eq!(ctx.plural, "myresources");
+        assert_eq!(ctx.short_name, "mr");
     }
 
     // Clone and equality tests
@@ -591,5 +639,68 @@ mod tests {
         let debug = format!("{:?}", ctx);
         assert!(debug.contains("CrdContext"));
         assert!(debug.contains("MyResource"));
+    }
+
+    // Pluralize tests
+    #[test]
+    fn test_pluralize_simple() {
+        assert_eq!(pluralize("Pod"), "pods");
+        assert_eq!(pluralize("Resource"), "resources");
+    }
+
+    #[test]
+    fn test_pluralize_ends_with_s() {
+        assert_eq!(pluralize("Ingress"), "ingresses");
+        assert_eq!(pluralize("Address"), "addresses");
+    }
+
+    #[test]
+    fn test_pluralize_ends_with_x() {
+        assert_eq!(pluralize("Index"), "indexes");
+        assert_eq!(pluralize("Box"), "boxes");
+    }
+
+    #[test]
+    fn test_pluralize_ends_with_ch() {
+        assert_eq!(pluralize("Watch"), "watches");
+        assert_eq!(pluralize("Batch"), "batches");
+    }
+
+    #[test]
+    fn test_pluralize_ends_with_sh() {
+        assert_eq!(pluralize("Mesh"), "meshes");
+        assert_eq!(pluralize("Dash"), "dashes");
+    }
+
+    #[test]
+    fn test_pluralize_ends_with_y_consonant() {
+        assert_eq!(pluralize("Policy"), "policies");
+        assert_eq!(pluralize("Entity"), "entities");
+    }
+
+    #[test]
+    fn test_pluralize_ends_with_y_vowel() {
+        assert_eq!(pluralize("Key"), "keys");
+        assert_eq!(pluralize("Gateway"), "gateways");
+        assert_eq!(pluralize("Boy"), "boys");
+    }
+
+    // Short name tests
+    #[test]
+    fn test_generate_short_name() {
+        assert_eq!(generate_short_name("MyResource"), "mr");
+        assert_eq!(generate_short_name("Pod"), "p");
+        assert_eq!(generate_short_name("HTTPServer"), "https");
+        assert_eq!(generate_short_name("CustomResourceDefinition"), "crd");
+    }
+
+    #[test]
+    fn test_generate_short_name_single_word() {
+        assert_eq!(generate_short_name("Database"), "d");
+    }
+
+    #[test]
+    fn test_generate_short_name_all_uppercase() {
+        assert_eq!(generate_short_name("ABC"), "abc");
     }
 }

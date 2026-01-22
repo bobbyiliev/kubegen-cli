@@ -59,15 +59,23 @@ pub fn execute_add_crd(args: &CrdArgs) -> Result<()> {
 
     let crd_dir = Path::new("src").join(&crd_ctx.kind_snake);
     let examples_dir = Path::new("examples");
+    let manifests_dir = Path::new("manifests");
 
     if args.dry_run {
-        return execute_dry_run(&crd_dir, examples_dir, &crd_ctx.kind_snake, &template_ctx);
+        return execute_dry_run(
+            &crd_dir,
+            examples_dir,
+            manifests_dir,
+            &crd_ctx.kind_snake,
+            &template_ctx,
+        );
     }
 
     let write_opts = WriteOptions::with_force(args.force);
 
     // Check for conflicts before proceeding
-    let paths_to_create = get_paths_to_create(&crd_dir, examples_dir, &crd_ctx.kind_snake);
+    let paths_to_create =
+        get_paths_to_create(&crd_dir, examples_dir, manifests_dir, &crd_ctx.kind_snake);
     let conflicts = check_conflicts(&paths_to_create, &write_opts);
     if !conflicts.is_empty() {
         return Err(crate::error::KubegenError::ValidationError(
@@ -79,6 +87,7 @@ pub fn execute_add_crd(args: &CrdArgs) -> Result<()> {
     create_crd_structure(
         &crd_dir,
         examples_dir,
+        manifests_dir,
         &crd_ctx.kind_snake,
         &template_ctx,
         &write_opts,
@@ -89,10 +98,14 @@ pub fn execute_add_crd(args: &CrdArgs) -> Result<()> {
     info!("  1. Add 'mod {};' to src/lib.rs", crd_ctx.kind_snake);
     info!("  2. Update src/main.rs to start the controller");
     info!(
-        "  3. Apply example CR: kubectl apply -f examples/example-{}.yaml",
+        "  3. Apply CRD: kubectl apply -f manifests/{}-crd.yaml",
         crd_ctx.kind_snake
     );
-    info!("  4. Run 'cargo build' to verify");
+    info!(
+        "  4. Apply example CR: kubectl apply -f examples/example-{}.yaml",
+        crd_ctx.kind_snake
+    );
+    info!("  5. Run 'cargo build' to verify");
 
     Ok(())
 }
@@ -142,6 +155,7 @@ fn get_project_name() -> Result<String> {
 fn get_paths_to_create(
     crd_dir: &Path,
     examples_dir: &Path,
+    manifests_dir: &Path,
     kind_snake: &str,
 ) -> Vec<std::path::PathBuf> {
     vec![
@@ -153,6 +167,8 @@ fn get_paths_to_create(
         crd_dir.join("status.rs"),
         examples_dir.to_path_buf(),
         examples_dir.join(format!("example-{}.yaml", kind_snake)),
+        manifests_dir.to_path_buf(),
+        manifests_dir.join(format!("{}-crd.yaml", kind_snake)),
     ]
 }
 
@@ -160,6 +176,7 @@ fn get_paths_to_create(
 fn execute_dry_run(
     crd_dir: &Path,
     examples_dir: &Path,
+    manifests_dir: &Path,
     kind_snake: &str,
     ctx: &TemplateContext,
 ) -> Result<()> {
@@ -167,6 +184,7 @@ fn execute_dry_run(
 
     dry_run.plan_dir(crd_dir);
     dry_run.plan_dir(examples_dir);
+    dry_run.plan_dir(manifests_dir);
 
     let renderer = SimpleRenderer::new();
 
@@ -191,6 +209,12 @@ fn execute_dry_run(
         &example_content,
     );
 
+    let crd_manifest_content = render_template(&renderer, "crd/crd.yaml.tmpl", ctx)?;
+    dry_run.plan_file(
+        manifests_dir.join(format!("{}-crd.yaml", kind_snake)),
+        &crd_manifest_content,
+    );
+
     println!("{}", dry_run.format_preview());
     Ok(())
 }
@@ -199,6 +223,7 @@ fn execute_dry_run(
 fn create_crd_structure(
     crd_dir: &Path,
     examples_dir: &Path,
+    manifests_dir: &Path,
     kind_snake: &str,
     ctx: &TemplateContext,
     opts: &WriteOptions,
@@ -212,6 +237,10 @@ fn create_crd_structure(
     // Create examples directory
     debug!("Creating examples directory: {}", examples_dir.display());
     create_dir_all(examples_dir)?;
+
+    // Create manifests directory
+    debug!("Creating manifests directory: {}", manifests_dir.display());
+    create_dir_all(manifests_dir)?;
 
     // Render and write mod.rs
     let mod_content = render_template(&renderer, "crd/mod.rs.tmpl", ctx)?;
@@ -244,6 +273,15 @@ fn create_crd_structure(
     write_file_protected(
         examples_dir.join(format!("example-{}.yaml", kind_snake)),
         &example_content,
+        opts,
+    )?;
+
+    // Render and write CRD manifest YAML
+    let crd_manifest_content = render_template(&renderer, "crd/crd.yaml.tmpl", ctx)?;
+    debug!("Writing {}-crd.yaml", kind_snake);
+    write_file_protected(
+        manifests_dir.join(format!("{}-crd.yaml", kind_snake)),
+        &crd_manifest_content,
         opts,
     )?;
 
@@ -311,6 +349,8 @@ mod tests {
             .path()
             .join("examples/example-my_resource.yaml")
             .exists());
+        // Check CRD manifest YAML
+        assert!(temp.path().join("manifests/my_resource-crd.yaml").exists());
     }
 
     #[test]
@@ -412,7 +452,8 @@ mod tests {
     fn test_get_paths_to_create() {
         let crd_dir = Path::new("src/my_resource");
         let examples_dir = Path::new("examples");
-        let paths = get_paths_to_create(crd_dir, examples_dir, "my_resource");
+        let manifests_dir = Path::new("manifests");
+        let paths = get_paths_to_create(crd_dir, examples_dir, manifests_dir, "my_resource");
 
         assert!(paths.contains(&crd_dir.to_path_buf()));
         assert!(paths.contains(&crd_dir.join("mod.rs")));
@@ -422,6 +463,8 @@ mod tests {
         assert!(paths.contains(&crd_dir.join("status.rs")));
         assert!(paths.contains(&examples_dir.to_path_buf()));
         assert!(paths.contains(&examples_dir.join("example-my_resource.yaml")));
+        assert!(paths.contains(&manifests_dir.to_path_buf()));
+        assert!(paths.contains(&manifests_dir.join("my_resource-crd.yaml")));
     }
 
     #[test]
