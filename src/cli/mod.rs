@@ -45,6 +45,9 @@ pub enum Commands {
     /// Add components to an existing operator project
     #[command(subcommand)]
     Add(AddCommands),
+
+    /// Upgrade project files to match current templates
+    Upgrade(UpgradeArgs),
 }
 
 /// Arguments for the `new` command
@@ -158,6 +161,22 @@ pub struct WebhookArgs {
     /// Overwrite existing files without prompting
     #[arg(short, long)]
     pub force: bool,
+}
+
+/// Arguments for the `upgrade` command
+#[derive(Parser, Debug)]
+pub struct UpgradeArgs {
+    /// Show what would be changed without actually modifying files
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Apply changes without prompting for confirmation
+    #[arg(short, long)]
+    pub force: bool,
+
+    /// Only upgrade specific components (project, crd, metrics, webhook)
+    #[arg(long, value_name = "COMPONENT")]
+    pub only: Option<String>,
 }
 
 #[cfg(test)]
@@ -647,5 +666,77 @@ mod tests {
         assert_eq!(cli1.template_dir, Some(PathBuf::from("/path")));
         assert_eq!(cli2.template_dir, Some(PathBuf::from("/path")));
         assert_eq!(cli3.template_dir, Some(PathBuf::from("/path")));
+    }
+
+    // Upgrade command tests
+    #[test]
+    fn test_parse_upgrade_command() {
+        let cli = Cli::parse_from(["kubegen", "upgrade"]);
+        if let Commands::Upgrade(args) = cli.command {
+            assert!(!args.dry_run);
+            assert!(!args.force);
+            assert!(args.only.is_none());
+        } else {
+            panic!("Expected Upgrade command");
+        }
+    }
+
+    #[test]
+    fn test_parse_upgrade_with_dry_run() {
+        let cli = Cli::parse_from(["kubegen", "upgrade", "--dry-run"]);
+        if let Commands::Upgrade(args) = cli.command {
+            assert!(args.dry_run);
+        } else {
+            panic!("Expected Upgrade command");
+        }
+    }
+
+    #[test]
+    fn test_parse_upgrade_with_force() {
+        let cli = Cli::parse_from(["kubegen", "upgrade", "--force"]);
+        if let Commands::Upgrade(args) = cli.command {
+            assert!(args.force);
+        } else {
+            panic!("Expected Upgrade command");
+        }
+    }
+
+    #[test]
+    fn test_parse_upgrade_with_force_short() {
+        let cli = Cli::parse_from(["kubegen", "upgrade", "-f"]);
+        if let Commands::Upgrade(args) = cli.command {
+            assert!(args.force);
+        } else {
+            panic!("Expected Upgrade command");
+        }
+    }
+
+    #[test]
+    fn test_parse_upgrade_with_only() {
+        let cli = Cli::parse_from(["kubegen", "upgrade", "--only", "project"]);
+        if let Commands::Upgrade(args) = cli.command {
+            assert_eq!(args.only, Some("project".to_string()));
+        } else {
+            panic!("Expected Upgrade command");
+        }
+    }
+
+    #[test]
+    fn test_parse_upgrade_all_flags() {
+        let cli = Cli::parse_from([
+            "kubegen",
+            "upgrade",
+            "--dry-run",
+            "--force",
+            "--only",
+            "project",
+        ]);
+        if let Commands::Upgrade(args) = cli.command {
+            assert!(args.dry_run);
+            assert!(args.force);
+            assert_eq!(args.only, Some("project".to_string()));
+        } else {
+            panic!("Expected Upgrade command");
+        }
     }
 }
