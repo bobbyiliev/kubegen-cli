@@ -97,7 +97,7 @@ test_build_operator() {
     # Create a Dockerfile for the operator
     cat > Dockerfile <<'EOF'
 # Build stage
-FROM rust:1.75-slim-bookworm AS builder
+FROM rust:1.83-slim-bookworm AS builder
 
 WORKDIR /app
 

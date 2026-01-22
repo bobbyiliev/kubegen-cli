@@ -98,7 +98,7 @@ test_deploy_crd() {
     kubectl_apply "manifests/test_resource-crd.yaml"
 
     # Wait for CRD to be established
-    local crd_name="testresourcess.${TEST_GROUP}"
+    local crd_name="testresources.${TEST_GROUP}"
     kubectl_wait_for "crd" "$crd_name"
 
     # Verify CRD is established
