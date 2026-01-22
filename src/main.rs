@@ -13,12 +13,14 @@ fn main() {
 
     debug!("CLI arguments parsed successfully");
 
+    let template_dir = cli.template_dir.as_deref();
+
     let result = match cli.command {
-        Commands::New(args) => execute_new(&args),
+        Commands::New(args) => execute_new(&args, template_dir),
         Commands::Add(add_cmd) => match add_cmd {
-            AddCommands::Crd(args) => execute_add_crd(&args),
-            AddCommands::Metrics(args) => execute_add_metrics(&args),
-            AddCommands::Webhook(args) => execute_add_webhook(&args),
+            AddCommands::Crd(args) => execute_add_crd(&args, template_dir),
+            AddCommands::Metrics(args) => execute_add_metrics(&args, template_dir),
+            AddCommands::Webhook(args) => execute_add_webhook(&args, template_dir),
         },
     };
 

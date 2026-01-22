@@ -13,12 +13,13 @@ use crate::fs::{
     WriteOptions,
 };
 use crate::templates::{
-    get_template, CrdContext, SimpleRenderer, StringTemplate, TemplateContext, TemplateRenderer,
+    get_template_with_override, CrdContext, SimpleRenderer, StringTemplate, TemplateContext,
+    TemplateRenderer,
 };
 use crate::validation;
 
 /// Execute the `kubegen add crd` command
-pub fn execute_add_crd(args: &CrdArgs) -> Result<()> {
+pub fn execute_add_crd(args: &CrdArgs, template_dir: Option<&Path>) -> Result<()> {
     // Validate CRD kind
     validation::validate_crd_kind(&args.kind)?;
 
@@ -68,6 +69,7 @@ pub fn execute_add_crd(args: &CrdArgs) -> Result<()> {
             manifests_dir,
             &crd_ctx.kind_snake,
             &template_ctx,
+            template_dir,
         );
     }
 
@@ -91,6 +93,7 @@ pub fn execute_add_crd(args: &CrdArgs) -> Result<()> {
         &crd_ctx.kind_snake,
         &template_ctx,
         &write_opts,
+        template_dir,
     )?;
 
     info!("CRD '{}' added successfully!", args.kind);
@@ -179,6 +182,7 @@ fn execute_dry_run(
     manifests_dir: &Path,
     kind_snake: &str,
     ctx: &TemplateContext,
+    template_dir: Option<&Path>,
 ) -> Result<()> {
     let mut dry_run = DryRunContext::new();
 
@@ -188,28 +192,31 @@ fn execute_dry_run(
 
     let renderer = SimpleRenderer::new();
 
-    let mod_content = render_template(&renderer, "crd/mod.rs.tmpl", ctx)?;
+    let mod_content = render_template(&renderer, "crd/mod.rs.tmpl", ctx, template_dir)?;
     dry_run.plan_file(crd_dir.join("mod.rs"), &mod_content);
 
-    let types_content = render_template(&renderer, "crd/types.rs.tmpl", ctx)?;
+    let types_content = render_template(&renderer, "crd/types.rs.tmpl", ctx, template_dir)?;
     dry_run.plan_file(crd_dir.join("types.rs"), &types_content);
 
-    let controller_content = render_template(&renderer, "crd/controller.rs.tmpl", ctx)?;
+    let controller_content =
+        render_template(&renderer, "crd/controller.rs.tmpl", ctx, template_dir)?;
     dry_run.plan_file(crd_dir.join("controller.rs"), &controller_content);
 
-    let finalizer_content = render_template(&renderer, "crd/finalizer.rs.tmpl", ctx)?;
+    let finalizer_content =
+        render_template(&renderer, "crd/finalizer.rs.tmpl", ctx, template_dir)?;
     dry_run.plan_file(crd_dir.join("finalizer.rs"), &finalizer_content);
 
-    let status_content = render_template(&renderer, "crd/status.rs.tmpl", ctx)?;
+    let status_content = render_template(&renderer, "crd/status.rs.tmpl", ctx, template_dir)?;
     dry_run.plan_file(crd_dir.join("status.rs"), &status_content);
 
-    let example_content = render_template(&renderer, "crd/example.yaml.tmpl", ctx)?;
+    let example_content = render_template(&renderer, "crd/example.yaml.tmpl", ctx, template_dir)?;
     dry_run.plan_file(
         examples_dir.join(format!("example-{}.yaml", kind_snake)),
         &example_content,
     );
 
-    let crd_manifest_content = render_template(&renderer, "crd/crd.yaml.tmpl", ctx)?;
+    let crd_manifest_content =
+        render_template(&renderer, "crd/crd.yaml.tmpl", ctx, template_dir)?;
     dry_run.plan_file(
         manifests_dir.join(format!("{}-crd.yaml", kind_snake)),
         &crd_manifest_content,
@@ -227,6 +234,7 @@ fn create_crd_structure(
     kind_snake: &str,
     ctx: &TemplateContext,
     opts: &WriteOptions,
+    template_dir: Option<&Path>,
 ) -> Result<()> {
     let renderer = SimpleRenderer::new();
 
@@ -243,32 +251,34 @@ fn create_crd_structure(
     create_dir_all(manifests_dir)?;
 
     // Render and write mod.rs
-    let mod_content = render_template(&renderer, "crd/mod.rs.tmpl", ctx)?;
+    let mod_content = render_template(&renderer, "crd/mod.rs.tmpl", ctx, template_dir)?;
     debug!("Writing mod.rs");
     write_file_protected(crd_dir.join("mod.rs"), &mod_content, opts)?;
 
     // Render and write types.rs
-    let types_content = render_template(&renderer, "crd/types.rs.tmpl", ctx)?;
+    let types_content = render_template(&renderer, "crd/types.rs.tmpl", ctx, template_dir)?;
     debug!("Writing types.rs");
     write_file_protected(crd_dir.join("types.rs"), &types_content, opts)?;
 
     // Render and write controller.rs
-    let controller_content = render_template(&renderer, "crd/controller.rs.tmpl", ctx)?;
+    let controller_content =
+        render_template(&renderer, "crd/controller.rs.tmpl", ctx, template_dir)?;
     debug!("Writing controller.rs");
     write_file_protected(crd_dir.join("controller.rs"), &controller_content, opts)?;
 
     // Render and write finalizer.rs
-    let finalizer_content = render_template(&renderer, "crd/finalizer.rs.tmpl", ctx)?;
+    let finalizer_content =
+        render_template(&renderer, "crd/finalizer.rs.tmpl", ctx, template_dir)?;
     debug!("Writing finalizer.rs");
     write_file_protected(crd_dir.join("finalizer.rs"), &finalizer_content, opts)?;
 
     // Render and write status.rs
-    let status_content = render_template(&renderer, "crd/status.rs.tmpl", ctx)?;
+    let status_content = render_template(&renderer, "crd/status.rs.tmpl", ctx, template_dir)?;
     debug!("Writing status.rs");
     write_file_protected(crd_dir.join("status.rs"), &status_content, opts)?;
 
     // Render and write example CR YAML
-    let example_content = render_template(&renderer, "crd/example.yaml.tmpl", ctx)?;
+    let example_content = render_template(&renderer, "crd/example.yaml.tmpl", ctx, template_dir)?;
     debug!("Writing example-{}.yaml", kind_snake);
     write_file_protected(
         examples_dir.join(format!("example-{}.yaml", kind_snake)),
@@ -277,7 +287,8 @@ fn create_crd_structure(
     )?;
 
     // Render and write CRD manifest YAML
-    let crd_manifest_content = render_template(&renderer, "crd/crd.yaml.tmpl", ctx)?;
+    let crd_manifest_content =
+        render_template(&renderer, "crd/crd.yaml.tmpl", ctx, template_dir)?;
     debug!("Writing {}-crd.yaml", kind_snake);
     write_file_protected(
         manifests_dir.join(format!("{}-crd.yaml", kind_snake)),
@@ -293,8 +304,9 @@ fn render_template(
     renderer: &SimpleRenderer,
     template_path: &str,
     ctx: &TemplateContext,
+    template_dir: Option<&Path>,
 ) -> Result<String> {
-    let template_content = get_template(template_path)?;
+    let template_content = get_template_with_override(template_path, template_dir)?;
     let template = StringTemplate::new(template_path, &template_content);
     renderer.render(&template, ctx)
 }
@@ -334,7 +346,7 @@ mod tests {
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let result = execute_add_crd(&make_args("MyResource"));
+        let result = execute_add_crd(&make_args("MyResource"), None);
         std::env::set_current_dir(&original_dir).unwrap();
 
         assert!(result.is_ok());
@@ -364,7 +376,7 @@ mod tests {
 
         let mut args = make_args("DryRunResource");
         args.dry_run = true;
-        let result = execute_add_crd(&args);
+        let result = execute_add_crd(&args, None);
 
         std::env::set_current_dir(&original_dir).unwrap();
 
@@ -382,7 +394,7 @@ mod tests {
             force: false,
         };
 
-        let result = execute_add_crd(&args);
+        let result = execute_add_crd(&args, None);
         assert!(result.is_err());
     }
 
@@ -395,7 +407,7 @@ mod tests {
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let result = execute_add_crd(&make_args("MyResource"));
+        let result = execute_add_crd(&make_args("MyResource"), None);
 
         std::env::set_current_dir(&original_dir).unwrap();
 
@@ -416,7 +428,7 @@ mod tests {
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let result = execute_add_crd(&make_args("MyResource"));
+        let result = execute_add_crd(&make_args("MyResource"), None);
 
         std::env::set_current_dir(&original_dir).unwrap();
 
@@ -439,7 +451,7 @@ mod tests {
 
         let mut args = make_args("MyResource");
         args.force = true;
-        let result = execute_add_crd(&args);
+        let result = execute_add_crd(&args, None);
 
         std::env::set_current_dir(&original_dir).unwrap();
 
@@ -476,7 +488,7 @@ mod tests {
         ctx.set("group", "example.com");
         ctx.set("version", "v1");
 
-        let result = render_template(&renderer, "crd/mod.rs.tmpl", &ctx);
+        let result = render_template(&renderer, "crd/mod.rs.tmpl", &ctx, None);
         assert!(result.is_ok());
         let content = result.unwrap();
         assert!(content.contains("TestResource"));

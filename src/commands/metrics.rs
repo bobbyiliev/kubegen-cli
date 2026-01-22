@@ -13,11 +13,11 @@ use crate::fs::{
     WriteOptions,
 };
 use crate::templates::{
-    get_template, SimpleRenderer, StringTemplate, TemplateContext, TemplateRenderer,
+    get_template_with_override, SimpleRenderer, StringTemplate, TemplateContext, TemplateRenderer,
 };
 
 /// Execute the `kubegen add metrics` command
-pub fn execute_add_metrics(args: &MetricsArgs) -> Result<()> {
+pub fn execute_add_metrics(args: &MetricsArgs, template_dir: Option<&Path>) -> Result<()> {
     // Validate we're in a kubegen project
     validate_project_structure()?;
 
@@ -30,7 +30,7 @@ pub fn execute_add_metrics(args: &MetricsArgs) -> Result<()> {
     let metrics_dir = Path::new("src").join("metrics");
 
     if args.dry_run {
-        return execute_dry_run(&metrics_dir, &ctx);
+        return execute_dry_run(&metrics_dir, &ctx, template_dir);
     }
 
     let write_opts = WriteOptions::with_force(args.force);
@@ -45,7 +45,7 @@ pub fn execute_add_metrics(args: &MetricsArgs) -> Result<()> {
     }
 
     // Create metrics module structure
-    create_metrics_structure(&metrics_dir, &ctx, &write_opts)?;
+    create_metrics_structure(&metrics_dir, &ctx, &write_opts, template_dir)?;
 
     info!("Metrics support added successfully!");
     info!("Next steps:");
@@ -81,14 +81,18 @@ fn get_paths_to_create(metrics_dir: &Path) -> Vec<std::path::PathBuf> {
 }
 
 /// Execute in dry-run mode
-fn execute_dry_run(metrics_dir: &Path, ctx: &TemplateContext) -> Result<()> {
+fn execute_dry_run(
+    metrics_dir: &Path,
+    ctx: &TemplateContext,
+    template_dir: Option<&Path>,
+) -> Result<()> {
     let mut dry_run = DryRunContext::new();
 
     dry_run.plan_dir(metrics_dir);
 
     let renderer = SimpleRenderer::new();
 
-    let mod_content = render_template(&renderer, "metrics/mod.rs.tmpl", ctx)?;
+    let mod_content = render_template(&renderer, "metrics/mod.rs.tmpl", ctx, template_dir)?;
     dry_run.plan_file(metrics_dir.join("mod.rs"), &mod_content);
 
     println!("{}", dry_run.format_preview());
@@ -100,6 +104,7 @@ fn create_metrics_structure(
     metrics_dir: &Path,
     ctx: &TemplateContext,
     opts: &WriteOptions,
+    template_dir: Option<&Path>,
 ) -> Result<()> {
     let renderer = SimpleRenderer::new();
 
@@ -108,7 +113,7 @@ fn create_metrics_structure(
     create_dir_all(metrics_dir)?;
 
     // Render and write mod.rs
-    let mod_content = render_template(&renderer, "metrics/mod.rs.tmpl", ctx)?;
+    let mod_content = render_template(&renderer, "metrics/mod.rs.tmpl", ctx, template_dir)?;
     debug!("Writing mod.rs");
     write_file_protected(metrics_dir.join("mod.rs"), &mod_content, opts)?;
 
@@ -120,8 +125,9 @@ fn render_template(
     renderer: &SimpleRenderer,
     template_path: &str,
     ctx: &TemplateContext,
+    template_dir: Option<&Path>,
 ) -> Result<String> {
-    let template_content = get_template(template_path)?;
+    let template_content = get_template_with_override(template_path, template_dir)?;
     let template = StringTemplate::new(template_path, &template_content);
     renderer.render(&template, ctx)
 }
@@ -159,7 +165,7 @@ mod tests {
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let result = execute_add_metrics(&make_args());
+        let result = execute_add_metrics(&make_args(), None);
         std::env::set_current_dir(&original_dir).unwrap();
 
         assert!(result.is_ok());
@@ -178,7 +184,7 @@ mod tests {
 
         let mut args = make_args();
         args.dry_run = true;
-        let result = execute_add_metrics(&args);
+        let result = execute_add_metrics(&args, None);
 
         std::env::set_current_dir(&original_dir).unwrap();
 
@@ -195,7 +201,7 @@ mod tests {
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let result = execute_add_metrics(&make_args());
+        let result = execute_add_metrics(&make_args(), None);
 
         std::env::set_current_dir(&original_dir).unwrap();
 
@@ -216,7 +222,7 @@ mod tests {
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let result = execute_add_metrics(&make_args());
+        let result = execute_add_metrics(&make_args(), None);
 
         std::env::set_current_dir(&original_dir).unwrap();
 
@@ -239,7 +245,7 @@ mod tests {
 
         let mut args = make_args();
         args.force = true;
-        let result = execute_add_metrics(&args);
+        let result = execute_add_metrics(&args, None);
 
         std::env::set_current_dir(&original_dir).unwrap();
 
@@ -259,7 +265,7 @@ mod tests {
 
         let mut args = make_args();
         args.port = 9090;
-        let result = execute_add_metrics(&args);
+        let result = execute_add_metrics(&args, None);
 
         std::env::set_current_dir(&original_dir).unwrap();
 
