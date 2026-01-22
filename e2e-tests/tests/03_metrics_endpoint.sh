@@ -345,37 +345,61 @@ test_verify_pods_running() {
 test_metrics_endpoint() {
     log_info "Testing metrics endpoint..."
 
-    # Get service ClusterIP - more reliable than pod IP for connectivity
-    local service_ip
-    service_ip=$(kubectl get service "$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.spec.clusterIP}')
-    log_info "Service IP: ${service_ip}"
+    local pod_name
+    pod_name=$(kubectl get pods -l "app=$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.items[0].metadata.name}')
+    log_info "Operator pod: ${pod_name}"
 
-    local metrics_url="http://${service_ip}:${METRICS_PORT}/metrics"
-    log_info "Fetching metrics from ${metrics_url}"
+    # Use port-forward with proper temp file handling
+    local tmp_output
+    tmp_output=$(mktemp)
+    local tmp_pf_log
+    tmp_pf_log=$(mktemp)
 
-    # Use kubectl exec on a debug pod - simpler and more reliable
-    # First, create a simple debug pod that stays running
-    kubectl run curl-debug --image=curlimages/curl:latest -n "$TEST_NAMESPACE" \
-        --restart=Never --command -- sleep 300 2>/dev/null || true
+    # Start port-forward in background, redirect its output to a file
+    kubectl port-forward "pod/${pod_name}" -n "$TEST_NAMESPACE" 19090:${METRICS_PORT} > "$tmp_pf_log" 2>&1 &
+    local pf_pid=$!
 
-    # Wait for the debug pod to be ready
-    kubectl wait --for=condition=ready pod/curl-debug -n "$TEST_NAMESPACE" --timeout=60s || {
-        log_error "Debug pod not ready"
-        kubectl delete pod curl-debug -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
+    # Wait for port-forward to be ready by checking the log file
+    local max_wait=30
+    local waited=0
+    while [ $waited -lt $max_wait ]; do
+        if grep -q "Forwarding from" "$tmp_pf_log" 2>/dev/null; then
+            log_info "Port-forward ready"
+            break
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+
+    if [ $waited -ge $max_wait ]; then
+        log_error "Port-forward did not become ready"
+        cat "$tmp_pf_log"
+        kill $pf_pid 2>/dev/null || true
+        rm -f "$tmp_output" "$tmp_pf_log"
         return 1
-    }
+    fi
 
-    # Execute curl from inside the debug pod
-    local metrics_response
-    metrics_response=$(kubectl exec curl-debug -n "$TEST_NAMESPACE" -- \
-        curl -s --connect-timeout 10 --max-time 15 "${metrics_url}" 2>&1)
+    # Small additional delay to ensure connection is fully established
+    sleep 2
 
+    # Fetch metrics using curl with output to file
+    curl -s --connect-timeout 10 --max-time 15 "http://127.0.0.1:19090/metrics" > "$tmp_output" 2>&1
     local curl_exit=$?
-    log_info "Curl exit code: ${curl_exit}"
-    log_info "Metrics response received (${#metrics_response} bytes)"
 
-    # Clean up debug pod
-    kubectl delete pod curl-debug -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
+    # Kill port-forward
+    kill $pf_pid 2>/dev/null || true
+    wait $pf_pid 2>/dev/null || true
+
+    # Read the response
+    local metrics_response
+    metrics_response=$(cat "$tmp_output")
+    local response_size=${#metrics_response}
+
+    log_info "Curl exit code: ${curl_exit}"
+    log_info "Metrics response received (${response_size} bytes)"
+
+    # Cleanup temp files
+    rm -f "$tmp_output" "$tmp_pf_log"
 
     # Verify response contains Prometheus metrics
     if echo "$metrics_response" | grep -q "# HELP\|# TYPE"; then
@@ -384,7 +408,7 @@ test_metrics_endpoint() {
         echo "$metrics_response" | head -20
     else
         log_error "Metrics endpoint did not return valid Prometheus format"
-        log_error "Response length: ${#metrics_response}"
+        log_error "Response length: ${response_size}"
         log_error "Response: ${metrics_response:0:500}"
         return 1
     fi
@@ -401,25 +425,37 @@ test_metrics_endpoint() {
 test_health_endpoint() {
     log_info "Testing health endpoint..."
 
-    # Get service ClusterIP
-    local service_ip
-    service_ip=$(kubectl get service "$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.spec.clusterIP}')
+    local pod_name
+    pod_name=$(kubectl get pods -l "app=$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.items[0].metadata.name}')
 
-    local health_url="http://${service_ip}:${METRICS_PORT}/healthz"
+    local tmp_pf_log
+    tmp_pf_log=$(mktemp)
 
-    # Create debug pod if not exists
-    kubectl run curl-health --image=curlimages/curl:latest -n "$TEST_NAMESPACE" \
-        --restart=Never --command -- sleep 60 2>/dev/null || true
+    # Start port-forward
+    kubectl port-forward "pod/${pod_name}" -n "$TEST_NAMESPACE" 19091:${METRICS_PORT} > "$tmp_pf_log" 2>&1 &
+    local pf_pid=$!
 
-    kubectl wait --for=condition=ready pod/curl-health -n "$TEST_NAMESPACE" --timeout=30s 2>/dev/null || true
+    # Wait for port-forward to be ready
+    local max_wait=15
+    local waited=0
+    while [ $waited -lt $max_wait ]; do
+        if grep -q "Forwarding from" "$tmp_pf_log" 2>/dev/null; then
+            break
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
 
-    # Execute curl
+    sleep 1
+
+    # Fetch health endpoint
     local health_response
-    health_response=$(kubectl exec curl-health -n "$TEST_NAMESPACE" -- \
-        curl -s --connect-timeout 5 --max-time 10 "${health_url}" 2>&1) || true
+    health_response=$(curl -s --connect-timeout 5 --max-time 10 "http://127.0.0.1:19091/healthz" 2>&1) || true
 
-    # Clean up
-    kubectl delete pod curl-health -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
+    # Cleanup
+    kill $pf_pid 2>/dev/null || true
+    wait $pf_pid 2>/dev/null || true
+    rm -f "$tmp_pf_log"
 
     if [ "$health_response" = "ok" ]; then
         log_info "Health endpoint returned 'ok'"
