@@ -8,10 +8,9 @@
 apiVersion: {{group}}/{{version}}
 kind: {{kind}}
 metadata:
-  name: example-{{kind_snake}}
-  namespace: default
+  name: example-{{kind_kebab}}
   labels:
-    app.kubernetes.io/name: {{kind_snake}}
+    app.kubernetes.io/name: {{kind_kebab}}
     app.kubernetes.io/managed-by: {{project_name}}
 spec:
   # TODO: Add your spec fields here
