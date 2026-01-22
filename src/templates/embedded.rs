@@ -308,6 +308,19 @@ mod tests {
     }
 
     #[test]
+    fn test_get_template_servicemonitor() {
+        let content = get_template("metrics/servicemonitor.yaml.tmpl");
+        assert!(content.is_ok());
+        let content = content.unwrap();
+        assert!(content.contains("monitoring.coreos.com/v1"));
+        assert!(content.contains("ServiceMonitor"));
+        assert!(content.contains("{{project_name_snake}}"));
+        assert!(content.contains("{{namespace}}"));
+        assert!(content.contains("/metrics"));
+        assert!(content.contains("interval: 30s"));
+    }
+
+    #[test]
     fn test_get_template_not_found() {
         let result = get_template("nonexistent/template.tmpl");
         assert!(result.is_err());

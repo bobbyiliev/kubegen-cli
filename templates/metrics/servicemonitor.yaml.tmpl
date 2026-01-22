@@ -1,0 +1,32 @@
+# ServiceMonitor for {{project_name}}
+#
+# This ServiceMonitor configures Prometheus Operator to scrape metrics
+# from the {{project_name}} operator.
+#
+# Prerequisites:
+#   - Prometheus Operator installed in the cluster
+#   - Operator deployed with a Service exposing the metrics port
+#
+# Apply with: kubectl apply -f servicemonitor.yaml
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{project_name_snake}}-metrics
+  namespace: {{namespace}}
+  labels:
+    app.kubernetes.io/name: {{project_name_snake}}
+    app.kubernetes.io/component: metrics
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{project_name_snake}}
+  namespaceSelector:
+    matchNames:
+      - {{namespace}}
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      path: /metrics
+      scheme: http
