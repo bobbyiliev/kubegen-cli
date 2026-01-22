@@ -5,28 +5,88 @@ on:
     tags:
       - 'v[0-9]+.*'
 
+permissions:
+  contents: write
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  create-release:
-    name: Create Release
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: zip
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          tag_name: ${{ github.ref_name }}
-          release_name: ${{ github.ref_name }}
-          draft: false
+          targets: ${{ matrix.target }}
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ../../../kubegen-${{ matrix.target }}.tar.gz kubegen
+
+      - name: Package (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          cd target/${{ matrix.target }}/release
+          Compress-Archive -Path kubegen.exe -DestinationPath ../../../kubegen-${{ matrix.target }}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kubegen-${{ matrix.target }}
+          path: kubegen-${{ matrix.target }}.${{ matrix.archive }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec mv {} release/ \;
+          ls -la release/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          files: release/*
           body: |
             ## Installation
 
@@ -34,160 +94,24 @@ jobs:
 
             ### Linux (x86_64)
             ```bash
-            curl -LO https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/kubegen-linux-x86_64.tar.gz
-            tar xzf kubegen-linux-x86_64.tar.gz
+            curl -LO https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/kubegen-x86_64-unknown-linux-gnu.tar.gz
+            tar xzf kubegen-x86_64-unknown-linux-gnu.tar.gz
             sudo mv kubegen /usr/local/bin/
             ```
 
             ### macOS (Apple Silicon)
             ```bash
-            curl -LO https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/kubegen-darwin-aarch64.tar.gz
-            tar xzf kubegen-darwin-aarch64.tar.gz
+            curl -LO https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/kubegen-aarch64-apple-darwin.tar.gz
+            tar xzf kubegen-aarch64-apple-darwin.tar.gz
             sudo mv kubegen /usr/local/bin/
             ```
 
             ### macOS (Intel)
             ```bash
-            curl -LO https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/kubegen-darwin-x86_64.tar.gz
-            tar xzf kubegen-darwin-x86_64.tar.gz
+            curl -LO https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/kubegen-x86_64-apple-darwin.tar.gz
+            tar xzf kubegen-x86_64-apple-darwin.tar.gz
             sudo mv kubegen /usr/local/bin/
             ```
 
             ### Windows
-            Download `kubegen-windows-x86_64.zip` and add to your PATH.
-
-  build-linux:
-    name: Build Linux
-    needs: create-release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-gnu
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build
-        run: cargo build --release --target x86_64-unknown-linux-gnu
-
-      - name: Package
-        run: |
-          cd target/x86_64-unknown-linux-gnu/release
-          tar czf kubegen-linux-x86_64.tar.gz kubegen
-          mv kubegen-linux-x86_64.tar.gz ../../../
-
-      - name: Upload Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./kubegen-linux-x86_64.tar.gz
-          asset_name: kubegen-linux-x86_64.tar.gz
-          asset_content_type: application/gzip
-
-  build-macos-intel:
-    name: Build macOS (Intel)
-    needs: create-release
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-apple-darwin
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build
-        run: cargo build --release --target x86_64-apple-darwin
-
-      - name: Package
-        run: |
-          cd target/x86_64-apple-darwin/release
-          tar czf kubegen-darwin-x86_64.tar.gz kubegen
-          mv kubegen-darwin-x86_64.tar.gz ../../../
-
-      - name: Upload Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./kubegen-darwin-x86_64.tar.gz
-          asset_name: kubegen-darwin-x86_64.tar.gz
-          asset_content_type: application/gzip
-
-  build-macos-arm:
-    name: Build macOS (Apple Silicon)
-    needs: create-release
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build
-        run: cargo build --release --target aarch64-apple-darwin
-
-      - name: Package
-        run: |
-          cd target/aarch64-apple-darwin/release
-          tar czf kubegen-darwin-aarch64.tar.gz kubegen
-          mv kubegen-darwin-aarch64.tar.gz ../../../
-
-      - name: Upload Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./kubegen-darwin-aarch64.tar.gz
-          asset_name: kubegen-darwin-aarch64.tar.gz
-          asset_content_type: application/gzip
-
-  build-windows:
-    name: Build Windows
-    needs: create-release
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build
-        run: cargo build --release --target x86_64-pc-windows-msvc
-
-      - name: Package
-        run: |
-          cd target/x86_64-pc-windows-msvc/release
-          Compress-Archive -Path kubegen.exe -DestinationPath kubegen-windows-x86_64.zip
-          Move-Item kubegen-windows-x86_64.zip ../../../
-
-      - name: Upload Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./kubegen-windows-x86_64.zip
-          asset_name: kubegen-windows-x86_64.zip
-          asset_content_type: application/zip
+            Download `kubegen-x86_64-pc-windows-msvc.zip` and add to your PATH.
