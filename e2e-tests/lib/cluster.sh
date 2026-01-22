@@ -111,8 +111,10 @@ wait_for_cluster_ready() {
     for ((i=1; i<=retries; i++)); do
         if kubectl get nodes &> /dev/null; then
             local ready_nodes
-            ready_nodes=$(kubectl get nodes --no-headers 2>/dev/null | grep -c " Ready " || echo "0")
-            if [ "$ready_nodes" -gt 0 ]; then
+            ready_nodes=$(kubectl get nodes --no-headers 2>/dev/null | grep -c " Ready " || true)
+            ready_nodes="${ready_nodes:-0}"
+            ready_nodes=$(echo "$ready_nodes" | tr -d '[:space:]')
+            if [[ "$ready_nodes" =~ ^[0-9]+$ ]] && [ "$ready_nodes" -gt 0 ]; then
                 log_info "Cluster is ready ($ready_nodes node(s))"
                 return 0
             fi
