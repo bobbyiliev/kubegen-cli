@@ -28,8 +28,18 @@ e2e-tests/
 │   ├── cluster.sh      # kind cluster management
 │   └── kubectl.sh      # kubectl helpers
 └── tests/
-    └── ...             # Individual test scripts
+    ├── 00_cluster_health.sh    # Verify cluster is healthy
+    ├── 01_crd_deployment.sh    # Test CRD deployment
+    └── 02_operator_deployment.sh  # Full operator deployment test
 ```
+
+## Available Tests
+
+| Test | Description |
+|------|-------------|
+| `00_cluster_health` | Verifies the kind cluster is healthy and accessible |
+| `01_crd_deployment` | Tests CRD generation and deployment |
+| `02_operator_deployment` | Full flow: generate operator, build Docker image, deploy to cluster, verify pods running |
 
 ## Writing Tests
 

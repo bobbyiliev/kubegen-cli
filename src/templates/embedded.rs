@@ -183,9 +183,8 @@ mod tests {
         let content = content.unwrap();
         assert!(content.contains("{{project_name}}"));
         assert!(content.contains("tokio::main"));
-        assert!(content.contains("mod metrics"));
-        assert!(content.contains("run_metrics_server"));
-        assert!(content.contains("METRICS_PORT"));
+        assert!(content.contains("mod error"));
+        assert!(content.contains("Client::try_default"));
     }
 
     #[test]
