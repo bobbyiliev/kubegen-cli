@@ -14,3 +14,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 schemars = "0.8"
 futures = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+
+# Metrics
+prometheus = "0.13"
+hyper = { version = "0.14", features = ["server", "http1", "tcp"] }
+lazy_static = "1.4"
