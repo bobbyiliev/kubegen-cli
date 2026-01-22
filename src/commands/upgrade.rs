@@ -101,7 +101,8 @@ fn detect_project_context() -> Result<TemplateContext> {
 fn extract_cargo_field(content: &str, field: &str) -> Option<String> {
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with(&format!("{} =", field)) || trimmed.starts_with(&format!("{}=", field))
+        if trimmed.starts_with(&format!("{} =", field))
+            || trimmed.starts_with(&format!("{}=", field))
         {
             // Extract the value between quotes
             if let Some(start) = trimmed.find('"') {
@@ -398,7 +399,10 @@ name = "my-operator"
     fn test_parse_component_filter_invalid() {
         let result = parse_component_filter("invalid");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Unknown component"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unknown component"));
     }
 
     #[test]
