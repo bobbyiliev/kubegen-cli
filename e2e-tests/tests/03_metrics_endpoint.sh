@@ -345,62 +345,37 @@ test_verify_pods_running() {
 test_metrics_endpoint() {
     log_info "Testing metrics endpoint..."
 
-    # Get pod IP directly - more reliable than port-forward
-    local pod_ip
-    pod_ip=$(kubectl get pods -l "app=$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.items[0].status.podIP}')
-    log_info "Pod IP: ${pod_ip}"
+    # Get service ClusterIP - more reliable than pod IP for connectivity
+    local service_ip
+    service_ip=$(kubectl get service "$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.spec.clusterIP}')
+    log_info "Service IP: ${service_ip}"
 
-    log_info "Fetching metrics from http://${pod_ip}:${METRICS_PORT}/metrics"
+    local metrics_url="http://${service_ip}:${METRICS_PORT}/metrics"
+    log_info "Fetching metrics from ${metrics_url}"
 
-    # Use a Job to fetch metrics and store in a ConfigMap - most reliable approach
-    local job_name="curl-metrics-$$"
-    local cm_name="metrics-result-$$"
+    # Use kubectl exec on a debug pod - simpler and more reliable
+    # First, create a simple debug pod that stays running
+    kubectl run curl-debug --image=curlimages/curl:latest -n "$TEST_NAMESPACE" \
+        --restart=Never --command -- sleep 300 2>/dev/null || true
 
-    # Clean up any existing resources
-    kubectl delete job "$job_name" -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
-    kubectl delete configmap "$cm_name" -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
-
-    # Create a job that fetches metrics and stores in a configmap
-    cat <<EOF | kubectl apply -n "$TEST_NAMESPACE" -f -
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: ${job_name}
-spec:
-  ttlSecondsAfterFinished: 60
-  template:
-    spec:
-      containers:
-      - name: curl
-        image: curlimages/curl:latest
-        command:
-        - /bin/sh
-        - -c
-        - |
-          curl -s --connect-timeout 10 --max-time 15 "http://${pod_ip}:${METRICS_PORT}/metrics" > /tmp/metrics.txt
-          echo "CURL_EXIT_CODE=\$?" >> /tmp/metrics.txt
-          cat /tmp/metrics.txt
-      restartPolicy: Never
-  backoffLimit: 1
-EOF
-
-    # Wait for job to complete
-    log_info "Waiting for curl job to complete..."
-    kubectl wait --for=condition=complete --timeout=60s "job/$job_name" -n "$TEST_NAMESPACE" || {
-        log_error "Curl job did not complete"
-        kubectl logs "job/$job_name" -n "$TEST_NAMESPACE" || true
-        kubectl delete job "$job_name" -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
+    # Wait for the debug pod to be ready
+    kubectl wait --for=condition=ready pod/curl-debug -n "$TEST_NAMESPACE" --timeout=60s || {
+        log_error "Debug pod not ready"
+        kubectl delete pod curl-debug -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
         return 1
     }
 
-    # Get the job output from logs
+    # Execute curl from inside the debug pod
     local metrics_response
-    metrics_response=$(kubectl logs "job/$job_name" -n "$TEST_NAMESPACE" 2>/dev/null | grep -v '^CURL_EXIT_CODE=' || true)
+    metrics_response=$(kubectl exec curl-debug -n "$TEST_NAMESPACE" -- \
+        curl -s --connect-timeout 10 --max-time 15 "${metrics_url}" 2>&1)
 
-    # Clean up
-    kubectl delete job "$job_name" -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
-
+    local curl_exit=$?
+    log_info "Curl exit code: ${curl_exit}"
     log_info "Metrics response received (${#metrics_response} bytes)"
+
+    # Clean up debug pod
+    kubectl delete pod curl-debug -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
 
     # Verify response contains Prometheus metrics
     if echo "$metrics_response" | grep -q "# HELP\|# TYPE"; then
@@ -410,7 +385,7 @@ EOF
     else
         log_error "Metrics endpoint did not return valid Prometheus format"
         log_error "Response length: ${#metrics_response}"
-        log_error "First 500 chars: ${metrics_response:0:500}"
+        log_error "Response: ${metrics_response:0:500}"
         return 1
     fi
 
@@ -426,45 +401,25 @@ EOF
 test_health_endpoint() {
     log_info "Testing health endpoint..."
 
-    # Get pod IP
-    local pod_ip
-    pod_ip=$(kubectl get pods -l "app=$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.items[0].status.podIP}')
+    # Get service ClusterIP
+    local service_ip
+    service_ip=$(kubectl get service "$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.spec.clusterIP}')
 
-    # Use a Job to check health endpoint - same reliable approach as metrics
-    local job_name="curl-health-$$"
+    local health_url="http://${service_ip}:${METRICS_PORT}/healthz"
 
-    kubectl delete job "$job_name" -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
+    # Create debug pod if not exists
+    kubectl run curl-health --image=curlimages/curl:latest -n "$TEST_NAMESPACE" \
+        --restart=Never --command -- sleep 60 2>/dev/null || true
 
-    cat <<EOF | kubectl apply -n "$TEST_NAMESPACE" -f -
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: ${job_name}
-spec:
-  ttlSecondsAfterFinished: 60
-  template:
-    spec:
-      containers:
-      - name: curl
-        image: curlimages/curl:latest
-        command:
-        - /bin/sh
-        - -c
-        - |
-          curl -s --connect-timeout 10 --max-time 15 "http://${pod_ip}:${METRICS_PORT}/healthz"
-      restartPolicy: Never
-  backoffLimit: 1
-EOF
+    kubectl wait --for=condition=ready pod/curl-health -n "$TEST_NAMESPACE" --timeout=30s 2>/dev/null || true
 
-    # Wait for job to complete
-    kubectl wait --for=condition=complete --timeout=30s "job/$job_name" -n "$TEST_NAMESPACE" 2>/dev/null || true
-
-    # Get the response
+    # Execute curl
     local health_response
-    health_response=$(kubectl logs "job/$job_name" -n "$TEST_NAMESPACE" 2>/dev/null || true)
+    health_response=$(kubectl exec curl-health -n "$TEST_NAMESPACE" -- \
+        curl -s --connect-timeout 5 --max-time 10 "${health_url}" 2>&1) || true
 
     # Clean up
-    kubectl delete job "$job_name" -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
+    kubectl delete pod curl-health -n "$TEST_NAMESPACE" --ignore-not-found=true 2>/dev/null || true
 
     if [ "$health_response" = "ok" ]; then
         log_info "Health endpoint returned 'ok'"
