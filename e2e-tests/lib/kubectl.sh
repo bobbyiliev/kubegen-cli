@@ -28,15 +28,19 @@ kubectl_delete() {
 kubectl_wait_for() {
     local resource_type="$1"
     local resource_name="$2"
-    local timeout="${3:-$DEFAULT_TIMEOUT}"
+    local namespace="${3:-}"
 
     log_info "Waiting for ${resource_type}/${resource_name} to exist..."
 
     local retries=60
     local wait_seconds=2
+    local ns_flag=""
+    if [ -n "$namespace" ]; then
+        ns_flag="-n $namespace"
+    fi
 
     for ((i=1; i<=retries; i++)); do
-        if kubectl get "$resource_type" "$resource_name" &> /dev/null; then
+        if kubectl get "$resource_type" "$resource_name" $ns_flag &> /dev/null; then
             log_info "${resource_type}/${resource_name} exists"
             return 0
         fi
