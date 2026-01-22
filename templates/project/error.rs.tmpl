@@ -13,6 +13,10 @@ pub enum Error {
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
 
+    /// Finalizer error during reconciliation
+    #[error("Finalizer error: {0}")]
+    FinalizerError(Box<dyn std::error::Error + Send + Sync>),
+
     /// Generic error
     #[error("{0}")]
     Generic(String),
