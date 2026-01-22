@@ -210,6 +210,23 @@ mod tests {
     }
 
     #[test]
+    fn test_get_template_crd_manifest() {
+        let content = get_template("crd/crd.yaml.tmpl");
+        assert!(content.is_ok());
+        let content = content.unwrap();
+        assert!(content.contains("{{kind}}"));
+        assert!(content.contains("{{group}}"));
+        assert!(content.contains("{{version}}"));
+        assert!(content.contains("{{plural}}"));
+        assert!(content.contains("{{short_name}}"));
+        assert!(content.contains("CustomResourceDefinition"));
+        assert!(content.contains("apiextensions.k8s.io/v1"));
+        assert!(content.contains("openAPIV3Schema"));
+        assert!(content.contains("subresources"));
+        assert!(content.contains("status: {}"));
+    }
+
+    #[test]
     fn test_get_template_webhook_mod() {
         let content = get_template("webhook/mod.rs.tmpl");
         assert!(content.is_ok());
