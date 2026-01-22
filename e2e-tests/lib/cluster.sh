@@ -5,6 +5,7 @@ set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-kubegen-e2e}"
 KIND_CONFIG="${KIND_CONFIG:-}"
+SKIP_CLUSTER_CREATE="${SKIP_CLUSTER_CREATE:-false}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -88,7 +89,9 @@ delete_cluster() {
 ensure_cluster() {
     check_prerequisites
 
-    if cluster_exists; then
+    if [ "$SKIP_CLUSTER_CREATE" = "true" ]; then
+        log_info "Using pre-existing cluster (SKIP_CLUSTER_CREATE=true)"
+    elif cluster_exists; then
         log_info "Using existing cluster: ${CLUSTER_NAME}"
     else
         create_cluster

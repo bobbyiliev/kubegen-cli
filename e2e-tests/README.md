@@ -62,3 +62,4 @@ test_my_feature
 | `CLUSTER_NAME` | `kubegen-e2e` | kind cluster name |
 | `KUBECONFIG` | auto | Path to kubeconfig |
 | `SKIP_CLEANUP` | `false` | Keep cluster after tests |
+| `SKIP_CLUSTER_CREATE` | `false` | Skip cluster creation (use existing) |
