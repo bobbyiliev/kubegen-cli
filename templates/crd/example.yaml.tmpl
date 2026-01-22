@@ -1,0 +1,19 @@
+# Example {{kind}} Custom Resource
+#
+# This is a sample CR that demonstrates the schema for {{kind}}.
+# Modify the spec fields according to your requirements.
+#
+# Apply with: kubectl apply -f example-{{kind_snake}}.yaml
+
+apiVersion: {{group}}/{{version}}
+kind: {{kind}}
+metadata:
+  name: example-{{kind_snake}}
+  namespace: default
+  labels:
+    app.kubernetes.io/name: {{kind_snake}}
+    app.kubernetes.io/managed-by: {{project_name}}
+spec:
+  # TODO: Add your spec fields here
+  # Example field (replace with your actual fields):
+  replicas: 1

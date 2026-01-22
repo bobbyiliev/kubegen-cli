@@ -37,6 +37,9 @@ pub fn execute_add_crd(args: &CrdArgs) -> Result<()> {
     // Validate we're in a kubegen project (Cargo.toml with kube dependency exists)
     validate_project_structure()?;
 
+    // Get project name for template context
+    let project_name = get_project_name()?;
+
     info!("Adding CRD: {}", args.kind);
 
     // Build CRD context
@@ -51,17 +54,20 @@ pub fn execute_add_crd(args: &CrdArgs) -> Result<()> {
             crate::error::KubegenError::ValidationError("Failed to build CRD context".to_string())
         })?;
 
-    let template_ctx = crd_ctx.to_template_context();
+    let mut template_ctx = crd_ctx.to_template_context();
+    template_ctx.set("project_name", &project_name);
+
     let crd_dir = Path::new("src").join(&crd_ctx.kind_snake);
+    let examples_dir = Path::new("examples");
 
     if args.dry_run {
-        return execute_dry_run(&crd_dir, &template_ctx);
+        return execute_dry_run(&crd_dir, examples_dir, &crd_ctx.kind_snake, &template_ctx);
     }
 
     let write_opts = WriteOptions::with_force(args.force);
 
     // Check for conflicts before proceeding
-    let paths_to_create = get_paths_to_create(&crd_dir);
+    let paths_to_create = get_paths_to_create(&crd_dir, examples_dir, &crd_ctx.kind_snake);
     let conflicts = check_conflicts(&paths_to_create, &write_opts);
     if !conflicts.is_empty() {
         return Err(crate::error::KubegenError::ValidationError(
@@ -70,13 +76,23 @@ pub fn execute_add_crd(args: &CrdArgs) -> Result<()> {
     }
 
     // Create CRD module structure
-    create_crd_structure(&crd_dir, &template_ctx, &write_opts)?;
+    create_crd_structure(
+        &crd_dir,
+        examples_dir,
+        &crd_ctx.kind_snake,
+        &template_ctx,
+        &write_opts,
+    )?;
 
     info!("CRD '{}' added successfully!", args.kind);
     info!("Next steps:");
     info!("  1. Add 'mod {};' to src/lib.rs", crd_ctx.kind_snake);
     info!("  2. Update src/main.rs to start the controller");
-    info!("  3. Run 'cargo build' to verify");
+    info!(
+        "  3. Apply example CR: kubectl apply -f examples/example-{}.yaml",
+        crd_ctx.kind_snake
+    );
+    info!("  4. Run 'cargo build' to verify");
 
     Ok(())
 }
@@ -100,8 +116,34 @@ fn validate_project_structure() -> Result<()> {
     Ok(())
 }
 
+/// Get the project name from Cargo.toml
+fn get_project_name() -> Result<String> {
+    let cargo_toml = Path::new("Cargo.toml");
+    let content = std::fs::read_to_string(cargo_toml).map_err(|e| {
+        crate::error::KubegenError::ValidationError(format!("Failed to read Cargo.toml: {}", e))
+    })?;
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with("name") {
+            if let Some(value) = line.split('=').nth(1) {
+                let name = value.trim().trim_matches('"').trim_matches('\'');
+                return Ok(name.to_string());
+            }
+        }
+    }
+
+    Err(crate::error::KubegenError::ValidationError(
+        "Could not find package name in Cargo.toml".to_string(),
+    ))
+}
+
 /// Get list of paths that will be created
-fn get_paths_to_create(crd_dir: &Path) -> Vec<std::path::PathBuf> {
+fn get_paths_to_create(
+    crd_dir: &Path,
+    examples_dir: &Path,
+    kind_snake: &str,
+) -> Vec<std::path::PathBuf> {
     vec![
         crd_dir.to_path_buf(),
         crd_dir.join("mod.rs"),
@@ -109,14 +151,22 @@ fn get_paths_to_create(crd_dir: &Path) -> Vec<std::path::PathBuf> {
         crd_dir.join("controller.rs"),
         crd_dir.join("finalizer.rs"),
         crd_dir.join("status.rs"),
+        examples_dir.to_path_buf(),
+        examples_dir.join(format!("example-{}.yaml", kind_snake)),
     ]
 }
 
 /// Execute in dry-run mode
-fn execute_dry_run(crd_dir: &Path, ctx: &TemplateContext) -> Result<()> {
+fn execute_dry_run(
+    crd_dir: &Path,
+    examples_dir: &Path,
+    kind_snake: &str,
+    ctx: &TemplateContext,
+) -> Result<()> {
     let mut dry_run = DryRunContext::new();
 
     dry_run.plan_dir(crd_dir);
+    dry_run.plan_dir(examples_dir);
 
     let renderer = SimpleRenderer::new();
 
@@ -135,17 +185,33 @@ fn execute_dry_run(crd_dir: &Path, ctx: &TemplateContext) -> Result<()> {
     let status_content = render_template(&renderer, "crd/status.rs.tmpl", ctx)?;
     dry_run.plan_file(crd_dir.join("status.rs"), &status_content);
 
+    let example_content = render_template(&renderer, "crd/example.yaml.tmpl", ctx)?;
+    dry_run.plan_file(
+        examples_dir.join(format!("example-{}.yaml", kind_snake)),
+        &example_content,
+    );
+
     println!("{}", dry_run.format_preview());
     Ok(())
 }
 
 /// Create the CRD module structure
-fn create_crd_structure(crd_dir: &Path, ctx: &TemplateContext, opts: &WriteOptions) -> Result<()> {
+fn create_crd_structure(
+    crd_dir: &Path,
+    examples_dir: &Path,
+    kind_snake: &str,
+    ctx: &TemplateContext,
+    opts: &WriteOptions,
+) -> Result<()> {
     let renderer = SimpleRenderer::new();
 
     // Create CRD directory
     debug!("Creating CRD directory: {}", crd_dir.display());
     create_dir_all(crd_dir)?;
+
+    // Create examples directory
+    debug!("Creating examples directory: {}", examples_dir.display());
+    create_dir_all(examples_dir)?;
 
     // Render and write mod.rs
     let mod_content = render_template(&renderer, "crd/mod.rs.tmpl", ctx)?;
@@ -171,6 +237,15 @@ fn create_crd_structure(crd_dir: &Path, ctx: &TemplateContext, opts: &WriteOptio
     let status_content = render_template(&renderer, "crd/status.rs.tmpl", ctx)?;
     debug!("Writing status.rs");
     write_file_protected(crd_dir.join("status.rs"), &status_content, opts)?;
+
+    // Render and write example CR YAML
+    let example_content = render_template(&renderer, "crd/example.yaml.tmpl", ctx)?;
+    debug!("Writing example-{}.yaml", kind_snake);
+    write_file_protected(
+        examples_dir.join(format!("example-{}.yaml", kind_snake)),
+        &example_content,
+        opts,
+    )?;
 
     Ok(())
 }
@@ -231,6 +306,11 @@ mod tests {
         assert!(temp.path().join("src/my_resource/controller.rs").exists());
         assert!(temp.path().join("src/my_resource/finalizer.rs").exists());
         assert!(temp.path().join("src/my_resource/status.rs").exists());
+        // Check example CR YAML
+        assert!(temp
+            .path()
+            .join("examples/example-my_resource.yaml")
+            .exists());
     }
 
     #[test]
@@ -331,7 +411,8 @@ mod tests {
     #[test]
     fn test_get_paths_to_create() {
         let crd_dir = Path::new("src/my_resource");
-        let paths = get_paths_to_create(crd_dir);
+        let examples_dir = Path::new("examples");
+        let paths = get_paths_to_create(crd_dir, examples_dir, "my_resource");
 
         assert!(paths.contains(&crd_dir.to_path_buf()));
         assert!(paths.contains(&crd_dir.join("mod.rs")));
@@ -339,6 +420,8 @@ mod tests {
         assert!(paths.contains(&crd_dir.join("controller.rs")));
         assert!(paths.contains(&crd_dir.join("finalizer.rs")));
         assert!(paths.contains(&crd_dir.join("status.rs")));
+        assert!(paths.contains(&examples_dir.to_path_buf()));
+        assert!(paths.contains(&examples_dir.join("example-my_resource.yaml")));
     }
 
     #[test]
