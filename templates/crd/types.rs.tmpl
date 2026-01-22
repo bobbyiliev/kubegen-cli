@@ -4,6 +4,8 @@ use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::status::{Condition, ConditionManager};
+
 /// {{kind}} specification
 #[derive(CustomResource, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[kube(
@@ -12,6 +14,7 @@ use serde::{Deserialize, Serialize};
     kind = "{{kind}}",
     namespaced,
     status = "{{kind}}Status",
+    printcolumn = r#"{"name":"Ready","type":"string","jsonPath":".status.conditions[?(@.type==\"Ready\")].status"}"#,
     printcolumn = r#"{"name":"Age","type":"date","jsonPath":".metadata.creationTimestamp"}"#
 )]
 pub struct {{kind}}Spec {
@@ -21,9 +24,27 @@ pub struct {{kind}}Spec {
 
 /// {{kind}} status
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct {{kind}}Status {
     /// Current number of ready replicas
+    #[serde(default)]
     pub ready_replicas: i32,
-    /// Human-readable status message
-    pub message: Option<String>,
+
+    /// Status conditions following Kubernetes conventions
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conditions: Vec<Condition>,
+
+    /// The generation most recently observed by the controller
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_generation: Option<i64>,
+}
+
+impl ConditionManager for {{kind}}Status {
+    fn conditions(&self) -> &[Condition] {
+        &self.conditions
+    }
+
+    fn conditions_mut(&mut self) -> &mut Vec<Condition> {
+        &mut self.conditions
+    }
 }
