@@ -353,14 +353,21 @@ test_metrics_endpoint() {
     # Use a curl pod to fetch metrics from within the cluster
     log_info "Fetching metrics from http://${pod_ip}:${METRICS_PORT}/metrics"
 
-    local metrics_response
-    metrics_response=$(kubectl run curl-test --rm -i --restart=Never \
+    # Create a temporary file for the response
+    local tmp_response
+    tmp_response=$(mktemp)
+
+    # Run curl in a pod and capture output, filtering out kubectl messages
+    kubectl run curl-test-$$ --rm -i --restart=Never \
         --image=curlimages/curl:latest \
         -n "$TEST_NAMESPACE" \
-        -- curl -s --connect-timeout 10 --max-time 15 "http://${pod_ip}:${METRICS_PORT}/metrics" 2>/dev/null) || {
-        log_error "Failed to fetch metrics"
-        return 1
-    }
+        -- curl -s --connect-timeout 10 --max-time 15 "http://${pod_ip}:${METRICS_PORT}/metrics" \
+        > "$tmp_response" 2>&1
+
+    # Read the response, filtering out "pod deleted" messages
+    local metrics_response
+    metrics_response=$(grep -v '^pod "curl-test' "$tmp_response" || true)
+    rm -f "$tmp_response"
 
     log_info "Metrics response received (${#metrics_response} bytes)"
 
@@ -392,15 +399,21 @@ test_health_endpoint() {
     local pod_ip
     pod_ip=$(kubectl get pods -l "app=$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.items[0].status.podIP}')
 
+    # Create a temporary file for the response
+    local tmp_response
+    tmp_response=$(mktemp)
+
     # Use a curl pod to fetch health endpoint from within the cluster
-    local health_response
-    health_response=$(kubectl run curl-health --rm -i --restart=Never \
+    kubectl run curl-health-$$ --rm -i --restart=Never \
         --image=curlimages/curl:latest \
         -n "$TEST_NAMESPACE" \
-        -- curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 15 "http://${pod_ip}:${METRICS_PORT}/healthz" 2>/dev/null) || true
+        -- curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 15 "http://${pod_ip}:${METRICS_PORT}/healthz" \
+        > "$tmp_response" 2>&1 || true
 
+    # Get the HTTP code (last line, excluding pod deletion message)
     local http_code
-    http_code=$(echo "$health_response" | tail -1)
+    http_code=$(grep -v '^pod "curl-health' "$tmp_response" | tail -1 || echo "000")
+    rm -f "$tmp_response"
 
     if [ "$http_code" = "200" ]; then
         log_info "Health endpoint returned 200 OK"
