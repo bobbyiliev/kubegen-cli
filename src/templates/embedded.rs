@@ -196,6 +196,20 @@ mod tests {
     }
 
     #[test]
+    fn test_get_template_crd_example() {
+        let content = get_template("crd/example.yaml.tmpl");
+        assert!(content.is_ok());
+        let content = content.unwrap();
+        assert!(content.contains("{{kind}}"));
+        assert!(content.contains("{{group}}"));
+        assert!(content.contains("{{version}}"));
+        assert!(content.contains("{{kind_snake}}"));
+        assert!(content.contains("apiVersion:"));
+        assert!(content.contains("metadata:"));
+        assert!(content.contains("spec:"));
+    }
+
+    #[test]
     fn test_get_template_webhook_mod() {
         let content = get_template("webhook/mod.rs.tmpl");
         assert!(content.is_ok());
