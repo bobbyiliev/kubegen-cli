@@ -1,11 +1,18 @@
 //! Embedded templates compiled into the binary
 //!
 //! Uses rust-embed to compile all templates from the templates/ directory
-//! into the binary for easy distribution.
+//! into the binary for easy distribution. Supports custom template overrides
+//! via a user-specified directory.
+
+use std::path::Path;
 
 use rust_embed::Embed;
 
 use crate::error::{KubegenError, Result};
+
+// Import PathBuf for constructing paths in error messages
+#[allow(unused_imports)]
+use std::path::PathBuf;
 
 /// Embedded template assets
 #[derive(Embed)]
@@ -51,6 +58,51 @@ pub fn get_template(path: &str) -> Result<String> {
         .ok_or_else(|| KubegenError::TemplateNotFound {
             template_name: path.to_string(),
         })
+}
+
+/// Get a template by path, checking custom directory first
+///
+/// If a custom template directory is provided, this function will first look for
+/// the template in that directory. If not found, it falls back to the embedded
+/// templates.
+///
+/// # Arguments
+/// * `path` - The template path relative to the templates directory
+/// * `custom_dir` - Optional custom template directory
+///
+/// # Returns
+/// The template content as a string, or an error if not found
+pub fn get_template_with_override(path: &str, custom_dir: Option<&Path>) -> Result<String> {
+    // First check custom directory if provided
+    if let Some(dir) = custom_dir {
+        let custom_path = dir.join(path);
+        if custom_path.exists() {
+            return std::fs::read_to_string(&custom_path).map_err(|e| KubegenError::FileRead {
+                path: custom_path,
+                source: e,
+            });
+        }
+    }
+
+    // Fall back to embedded template
+    get_template(path)
+}
+
+/// Check if a template exists in either custom directory or embedded templates
+///
+/// # Arguments
+/// * `path` - The template path to check
+/// * `custom_dir` - Optional custom template directory
+///
+/// # Returns
+/// true if the template exists in either location
+pub fn template_exists_with_override(path: &str, custom_dir: Option<&Path>) -> bool {
+    if let Some(dir) = custom_dir {
+        if dir.join(path).exists() {
+            return true;
+        }
+    }
+    template_exists(path)
 }
 
 /// Get an embedded template by category and name
@@ -395,5 +447,108 @@ mod tests {
         let cat = TemplateCategory::Metrics;
         let debug_str = format!("{:?}", cat);
         assert!(debug_str.contains("Metrics"));
+    }
+
+    #[test]
+    fn test_get_template_with_override_no_custom_dir() {
+        // Without custom dir, should fall back to embedded
+        let content = get_template_with_override("project/Cargo.toml.tmpl", None);
+        assert!(content.is_ok());
+        assert!(content.unwrap().contains("[package]"));
+    }
+
+    #[test]
+    fn test_get_template_with_override_custom_dir() {
+        use tempfile::TempDir;
+
+        // Create a temp directory with a custom template
+        let temp = TempDir::new().unwrap();
+        let template_dir = temp.path();
+        std::fs::create_dir_all(template_dir.join("project")).unwrap();
+        std::fs::write(
+            template_dir.join("project/Cargo.toml.tmpl"),
+            "[package]\nname = \"custom-{{project_name}}\"",
+        )
+        .unwrap();
+
+        // With custom dir, should use custom template
+        let content = get_template_with_override("project/Cargo.toml.tmpl", Some(template_dir));
+        assert!(content.is_ok());
+        let content = content.unwrap();
+        assert!(content.contains("custom-{{project_name}}"));
+    }
+
+    #[test]
+    fn test_get_template_with_override_partial_override() {
+        use tempfile::TempDir;
+
+        // Create a temp directory with only one custom template
+        let temp = TempDir::new().unwrap();
+        let template_dir = temp.path();
+        std::fs::create_dir_all(template_dir.join("project")).unwrap();
+        std::fs::write(
+            template_dir.join("project/Cargo.toml.tmpl"),
+            "custom content",
+        )
+        .unwrap();
+
+        // Custom template should be used
+        let cargo = get_template_with_override("project/Cargo.toml.tmpl", Some(template_dir));
+        assert!(cargo.is_ok());
+        assert!(cargo.unwrap().contains("custom content"));
+
+        // Non-overridden template should fall back to embedded
+        let main = get_template_with_override("project/main.rs.tmpl", Some(template_dir));
+        assert!(main.is_ok());
+        assert!(main.unwrap().contains("tokio::main"));
+    }
+
+    #[test]
+    fn test_get_template_with_override_not_found() {
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let template_dir = temp.path();
+
+        // Template doesn't exist in custom dir or embedded
+        let result = get_template_with_override("nonexistent/template.tmpl", Some(template_dir));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_template_exists_with_override_no_custom_dir() {
+        assert!(template_exists_with_override(
+            "project/Cargo.toml.tmpl",
+            None
+        ));
+        assert!(!template_exists_with_override("nonexistent.tmpl", None));
+    }
+
+    #[test]
+    fn test_template_exists_with_override_custom_dir() {
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let template_dir = temp.path();
+        std::fs::create_dir_all(template_dir.join("custom")).unwrap();
+        std::fs::write(template_dir.join("custom/my.tmpl"), "content").unwrap();
+
+        // Custom template exists
+        assert!(template_exists_with_override(
+            "custom/my.tmpl",
+            Some(template_dir)
+        ));
+
+        // Embedded template still exists
+        assert!(template_exists_with_override(
+            "project/Cargo.toml.tmpl",
+            Some(template_dir)
+        ));
+
+        // Non-existent template
+        assert!(!template_exists_with_override(
+            "nonexistent.tmpl",
+            Some(template_dir)
+        ));
     }
 }

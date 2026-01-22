@@ -13,12 +13,12 @@ use crate::fs::{
     WriteOptions,
 };
 use crate::templates::{
-    get_template, SimpleRenderer, StringTemplate, TemplateContext, TemplateRenderer,
+    get_template_with_override, SimpleRenderer, StringTemplate, TemplateContext, TemplateRenderer,
 };
 use crate::validation::{self, pluralize, to_snake_case};
 
 /// Execute the `kubegen add webhook` command
-pub fn execute_add_webhook(args: &WebhookArgs) -> Result<()> {
+pub fn execute_add_webhook(args: &WebhookArgs, template_dir: Option<&Path>) -> Result<()> {
     // Validate CRD kind
     validation::validate_crd_kind(&args.kind)?;
 
@@ -63,7 +63,7 @@ pub fn execute_add_webhook(args: &WebhookArgs) -> Result<()> {
     let manifests_dir = Path::new("manifests").join("webhook");
 
     if args.dry_run {
-        return execute_dry_run(&webhook_dir, &manifests_dir, &ctx, args);
+        return execute_dry_run(&webhook_dir, &manifests_dir, &ctx, args, template_dir);
     }
 
     let write_opts = WriteOptions::with_force(args.force);
@@ -78,7 +78,14 @@ pub fn execute_add_webhook(args: &WebhookArgs) -> Result<()> {
     }
 
     // Create webhook module structure
-    create_webhook_structure(&webhook_dir, &manifests_dir, &ctx, &write_opts, args)?;
+    create_webhook_structure(
+        &webhook_dir,
+        &manifests_dir,
+        &ctx,
+        &write_opts,
+        args,
+        template_dir,
+    )?;
 
     info!("Webhook support added successfully!");
     info!("Next steps:");
@@ -165,6 +172,7 @@ fn execute_dry_run(
     manifests_dir: &Path,
     ctx: &TemplateContext,
     args: &WebhookArgs,
+    template_dir: Option<&Path>,
 ) -> Result<()> {
     let mut dry_run = DryRunContext::new();
 
@@ -173,17 +181,19 @@ fn execute_dry_run(
 
     let renderer = SimpleRenderer::new();
 
-    let mod_content = render_template(&renderer, "webhook/mod.rs.tmpl", ctx)?;
+    let mod_content = render_template(&renderer, "webhook/mod.rs.tmpl", ctx, template_dir)?;
     dry_run.plan_file(webhook_dir.join("mod.rs"), &mod_content);
 
     if args.validating {
-        let validating_content = render_template(&renderer, "webhook/validating.rs.tmpl", ctx)?;
+        let validating_content =
+            render_template(&renderer, "webhook/validating.rs.tmpl", ctx, template_dir)?;
         dry_run.plan_file(webhook_dir.join("validating.rs"), &validating_content);
 
         let validating_config = render_template(
             &renderer,
             "webhook/validating-webhook-config.yaml.tmpl",
             ctx,
+            template_dir,
         )?;
         dry_run.plan_file(
             manifests_dir.join("validating-webhook-config.yaml"),
@@ -192,11 +202,16 @@ fn execute_dry_run(
     }
 
     if args.mutating {
-        let mutating_content = render_template(&renderer, "webhook/mutating.rs.tmpl", ctx)?;
+        let mutating_content =
+            render_template(&renderer, "webhook/mutating.rs.tmpl", ctx, template_dir)?;
         dry_run.plan_file(webhook_dir.join("mutating.rs"), &mutating_content);
 
-        let mutating_config =
-            render_template(&renderer, "webhook/mutating-webhook-config.yaml.tmpl", ctx)?;
+        let mutating_config = render_template(
+            &renderer,
+            "webhook/mutating-webhook-config.yaml.tmpl",
+            ctx,
+            template_dir,
+        )?;
         dry_run.plan_file(
             manifests_dir.join("mutating-webhook-config.yaml"),
             &mutating_config,
@@ -204,10 +219,15 @@ fn execute_dry_run(
     }
 
     // Always generate cert-manager resources for webhooks
-    let certificate_content = render_template(&renderer, "webhook/certificate.yaml.tmpl", ctx)?;
+    let certificate_content = render_template(
+        &renderer,
+        "webhook/certificate.yaml.tmpl",
+        ctx,
+        template_dir,
+    )?;
     dry_run.plan_file(manifests_dir.join("certificate.yaml"), &certificate_content);
 
-    let issuer_content = render_template(&renderer, "webhook/issuer.yaml.tmpl", ctx)?;
+    let issuer_content = render_template(&renderer, "webhook/issuer.yaml.tmpl", ctx, template_dir)?;
     dry_run.plan_file(manifests_dir.join("issuer.yaml"), &issuer_content);
 
     println!("{}", dry_run.format_preview());
@@ -221,6 +241,7 @@ fn create_webhook_structure(
     ctx: &TemplateContext,
     opts: &WriteOptions,
     args: &WebhookArgs,
+    template_dir: Option<&Path>,
 ) -> Result<()> {
     let renderer = SimpleRenderer::new();
 
@@ -233,13 +254,14 @@ fn create_webhook_structure(
     create_dir_all(manifests_dir)?;
 
     // Render and write mod.rs
-    let mod_content = render_template(&renderer, "webhook/mod.rs.tmpl", ctx)?;
+    let mod_content = render_template(&renderer, "webhook/mod.rs.tmpl", ctx, template_dir)?;
     debug!("Writing mod.rs");
     write_file_protected(webhook_dir.join("mod.rs"), &mod_content, opts)?;
 
     // Render and write validating.rs if requested
     if args.validating {
-        let validating_content = render_template(&renderer, "webhook/validating.rs.tmpl", ctx)?;
+        let validating_content =
+            render_template(&renderer, "webhook/validating.rs.tmpl", ctx, template_dir)?;
         debug!("Writing validating.rs");
         write_file_protected(webhook_dir.join("validating.rs"), &validating_content, opts)?;
 
@@ -248,6 +270,7 @@ fn create_webhook_structure(
             &renderer,
             "webhook/validating-webhook-config.yaml.tmpl",
             ctx,
+            template_dir,
         )?;
         debug!("Writing validating-webhook-config.yaml");
         write_file_protected(
@@ -259,13 +282,18 @@ fn create_webhook_structure(
 
     // Render and write mutating.rs if requested
     if args.mutating {
-        let mutating_content = render_template(&renderer, "webhook/mutating.rs.tmpl", ctx)?;
+        let mutating_content =
+            render_template(&renderer, "webhook/mutating.rs.tmpl", ctx, template_dir)?;
         debug!("Writing mutating.rs");
         write_file_protected(webhook_dir.join("mutating.rs"), &mutating_content, opts)?;
 
         // Write mutating webhook configuration manifest
-        let mutating_config =
-            render_template(&renderer, "webhook/mutating-webhook-config.yaml.tmpl", ctx)?;
+        let mutating_config = render_template(
+            &renderer,
+            "webhook/mutating-webhook-config.yaml.tmpl",
+            ctx,
+            template_dir,
+        )?;
         debug!("Writing mutating-webhook-config.yaml");
         write_file_protected(
             manifests_dir.join("mutating-webhook-config.yaml"),
@@ -275,7 +303,12 @@ fn create_webhook_structure(
     }
 
     // Always generate cert-manager resources for webhooks
-    let certificate_content = render_template(&renderer, "webhook/certificate.yaml.tmpl", ctx)?;
+    let certificate_content = render_template(
+        &renderer,
+        "webhook/certificate.yaml.tmpl",
+        ctx,
+        template_dir,
+    )?;
     debug!("Writing certificate.yaml");
     write_file_protected(
         manifests_dir.join("certificate.yaml"),
@@ -283,7 +316,7 @@ fn create_webhook_structure(
         opts,
     )?;
 
-    let issuer_content = render_template(&renderer, "webhook/issuer.yaml.tmpl", ctx)?;
+    let issuer_content = render_template(&renderer, "webhook/issuer.yaml.tmpl", ctx, template_dir)?;
     debug!("Writing issuer.yaml");
     write_file_protected(manifests_dir.join("issuer.yaml"), &issuer_content, opts)?;
 
@@ -295,8 +328,9 @@ fn render_template(
     renderer: &SimpleRenderer,
     template_path: &str,
     ctx: &TemplateContext,
+    template_dir: Option<&Path>,
 ) -> Result<String> {
-    let template_content = get_template(template_path)?;
+    let template_content = get_template_with_override(template_path, template_dir)?;
     let template = StringTemplate::new(template_path, &template_content);
     renderer.render(&template, ctx)
 }
@@ -339,7 +373,7 @@ mod tests {
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let result = execute_add_webhook(&make_args("MyResource", true, false));
+        let result = execute_add_webhook(&make_args("MyResource", true, false), None);
         std::env::set_current_dir(&original_dir).unwrap();
 
         assert!(result.is_ok());
@@ -373,7 +407,7 @@ mod tests {
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let result = execute_add_webhook(&make_args("MyResource", false, true));
+        let result = execute_add_webhook(&make_args("MyResource", false, true), None);
         std::env::set_current_dir(&original_dir).unwrap();
 
         assert!(result.is_ok());
@@ -407,7 +441,7 @@ mod tests {
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let result = execute_add_webhook(&make_args("MyResource", true, true));
+        let result = execute_add_webhook(&make_args("MyResource", true, true), None);
         std::env::set_current_dir(&original_dir).unwrap();
 
         assert!(result.is_ok());
@@ -440,7 +474,7 @@ mod tests {
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let result = execute_add_webhook(&make_args("MyResource", false, false));
+        let result = execute_add_webhook(&make_args("MyResource", false, false), None);
         std::env::set_current_dir(&original_dir).unwrap();
 
         assert!(result.is_err());
@@ -457,7 +491,7 @@ mod tests {
 
         let mut args = make_args("MyResource", true, false);
         args.dry_run = true;
-        let result = execute_add_webhook(&args);
+        let result = execute_add_webhook(&args, None);
 
         std::env::set_current_dir(&original_dir).unwrap();
 
@@ -478,7 +512,7 @@ mod tests {
             force: false,
         };
 
-        let result = execute_add_webhook(&args);
+        let result = execute_add_webhook(&args, None);
         assert!(result.is_err());
     }
 
@@ -491,7 +525,7 @@ mod tests {
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let result = execute_add_webhook(&make_args("MyResource", true, false));
+        let result = execute_add_webhook(&make_args("MyResource", true, false), None);
 
         std::env::set_current_dir(&original_dir).unwrap();
 
@@ -512,7 +546,7 @@ mod tests {
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let result = execute_add_webhook(&make_args("MyResource", true, false));
+        let result = execute_add_webhook(&make_args("MyResource", true, false), None);
 
         std::env::set_current_dir(&original_dir).unwrap();
 
@@ -535,7 +569,7 @@ mod tests {
 
         let mut args = make_args("MyResource", true, false);
         args.force = true;
-        let result = execute_add_webhook(&args);
+        let result = execute_add_webhook(&args, None);
 
         std::env::set_current_dir(&original_dir).unwrap();
 
@@ -591,7 +625,7 @@ mod tests {
         args.group = Some("mygroup.example.com".to_string());
         args.service_name = Some("my-webhook".to_string());
         args.namespace = "my-namespace".to_string();
-        let result = execute_add_webhook(&args);
+        let result = execute_add_webhook(&args, None);
         std::env::set_current_dir(&original_dir).unwrap();
 
         assert!(result.is_ok());

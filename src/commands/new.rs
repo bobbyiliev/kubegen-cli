@@ -13,12 +13,13 @@ use crate::fs::{
     WriteOptions,
 };
 use crate::templates::{
-    get_template, ProjectContext, SimpleRenderer, StringTemplate, TemplateContext, TemplateRenderer,
+    get_template_with_override, ProjectContext, SimpleRenderer, StringTemplate, TemplateContext,
+    TemplateRenderer,
 };
 use crate::validation;
 
 /// Execute the `kubegen new` command
-pub fn execute_new(args: &NewArgs) -> Result<()> {
+pub fn execute_new(args: &NewArgs, template_dir: Option<&Path>) -> Result<()> {
     // Validate project name
     validation::validate_project_name(&args.name)?;
 
@@ -42,7 +43,7 @@ pub fn execute_new(args: &NewArgs) -> Result<()> {
     let project_dir = Path::new(&args.name);
 
     if args.dry_run {
-        return execute_dry_run(project_dir, &template_ctx);
+        return execute_dry_run(project_dir, &template_ctx, template_dir);
     }
 
     let write_opts = WriteOptions::with_force(args.force);
@@ -57,7 +58,7 @@ pub fn execute_new(args: &NewArgs) -> Result<()> {
     }
 
     // Create project structure
-    create_project_structure(project_dir, &template_ctx, &write_opts)?;
+    create_project_structure(project_dir, &template_ctx, &write_opts, template_dir)?;
 
     info!("Project '{}' created successfully!", args.name);
     info!("Next steps:");
@@ -84,7 +85,11 @@ fn get_paths_to_create(project_dir: &Path) -> Vec<std::path::PathBuf> {
 }
 
 /// Execute in dry-run mode
-fn execute_dry_run(project_dir: &Path, ctx: &TemplateContext) -> Result<()> {
+fn execute_dry_run(
+    project_dir: &Path,
+    ctx: &TemplateContext,
+    template_dir: Option<&Path>,
+) -> Result<()> {
     let mut dry_run = DryRunContext::new();
 
     dry_run.plan_dir(project_dir);
@@ -93,25 +98,26 @@ fn execute_dry_run(project_dir: &Path, ctx: &TemplateContext) -> Result<()> {
     // Render templates and plan file creation
     let renderer = SimpleRenderer::new();
 
-    let cargo_content = render_template(&renderer, "project/Cargo.toml.tmpl", ctx)?;
+    let cargo_content = render_template(&renderer, "project/Cargo.toml.tmpl", ctx, template_dir)?;
     dry_run.plan_file(project_dir.join("Cargo.toml"), &cargo_content);
 
-    let readme_content = render_template(&renderer, "project/README.md.tmpl", ctx)?;
+    let readme_content = render_template(&renderer, "project/README.md.tmpl", ctx, template_dir)?;
     dry_run.plan_file(project_dir.join("README.md"), &readme_content);
 
-    let makefile_content = render_template(&renderer, "project/Makefile.tmpl", ctx)?;
+    let makefile_content = render_template(&renderer, "project/Makefile.tmpl", ctx, template_dir)?;
     dry_run.plan_file(project_dir.join("Makefile"), &makefile_content);
 
-    let gitignore_content = render_template(&renderer, "project/gitignore.tmpl", ctx)?;
+    let gitignore_content =
+        render_template(&renderer, "project/gitignore.tmpl", ctx, template_dir)?;
     dry_run.plan_file(project_dir.join(".gitignore"), &gitignore_content);
 
-    let main_content = render_template(&renderer, "project/main.rs.tmpl", ctx)?;
+    let main_content = render_template(&renderer, "project/main.rs.tmpl", ctx, template_dir)?;
     dry_run.plan_file(project_dir.join("src/main.rs"), &main_content);
 
-    let lib_content = render_template(&renderer, "project/lib.rs.tmpl", ctx)?;
+    let lib_content = render_template(&renderer, "project/lib.rs.tmpl", ctx, template_dir)?;
     dry_run.plan_file(project_dir.join("src/lib.rs"), &lib_content);
 
-    let error_content = render_template(&renderer, "project/error.rs.tmpl", ctx)?;
+    let error_content = render_template(&renderer, "project/error.rs.tmpl", ctx, template_dir)?;
     dry_run.plan_file(project_dir.join("src/error.rs"), &error_content);
 
     println!("{}", dry_run.format_preview());
@@ -123,6 +129,7 @@ fn create_project_structure(
     project_dir: &Path,
     ctx: &TemplateContext,
     opts: &WriteOptions,
+    template_dir: Option<&Path>,
 ) -> Result<()> {
     let renderer = SimpleRenderer::new();
 
@@ -132,37 +139,38 @@ fn create_project_structure(
     create_dir_all(project_dir.join("src"))?;
 
     // Render and write Cargo.toml
-    let cargo_content = render_template(&renderer, "project/Cargo.toml.tmpl", ctx)?;
+    let cargo_content = render_template(&renderer, "project/Cargo.toml.tmpl", ctx, template_dir)?;
     debug!("Writing Cargo.toml");
     write_file_protected(project_dir.join("Cargo.toml"), &cargo_content, opts)?;
 
     // Render and write README.md
-    let readme_content = render_template(&renderer, "project/README.md.tmpl", ctx)?;
+    let readme_content = render_template(&renderer, "project/README.md.tmpl", ctx, template_dir)?;
     debug!("Writing README.md");
     write_file_protected(project_dir.join("README.md"), &readme_content, opts)?;
 
     // Render and write Makefile
-    let makefile_content = render_template(&renderer, "project/Makefile.tmpl", ctx)?;
+    let makefile_content = render_template(&renderer, "project/Makefile.tmpl", ctx, template_dir)?;
     debug!("Writing Makefile");
     write_file_protected(project_dir.join("Makefile"), &makefile_content, opts)?;
 
     // Render and write .gitignore
-    let gitignore_content = render_template(&renderer, "project/gitignore.tmpl", ctx)?;
+    let gitignore_content =
+        render_template(&renderer, "project/gitignore.tmpl", ctx, template_dir)?;
     debug!("Writing .gitignore");
     write_file_protected(project_dir.join(".gitignore"), &gitignore_content, opts)?;
 
     // Render and write main.rs
-    let main_content = render_template(&renderer, "project/main.rs.tmpl", ctx)?;
+    let main_content = render_template(&renderer, "project/main.rs.tmpl", ctx, template_dir)?;
     debug!("Writing src/main.rs");
     write_file_protected(project_dir.join("src/main.rs"), &main_content, opts)?;
 
     // Render and write lib.rs
-    let lib_content = render_template(&renderer, "project/lib.rs.tmpl", ctx)?;
+    let lib_content = render_template(&renderer, "project/lib.rs.tmpl", ctx, template_dir)?;
     debug!("Writing src/lib.rs");
     write_file_protected(project_dir.join("src/lib.rs"), &lib_content, opts)?;
 
     // Render and write error.rs
-    let error_content = render_template(&renderer, "project/error.rs.tmpl", ctx)?;
+    let error_content = render_template(&renderer, "project/error.rs.tmpl", ctx, template_dir)?;
     debug!("Writing src/error.rs");
     write_file_protected(project_dir.join("src/error.rs"), &error_content, opts)?;
 
@@ -174,8 +182,9 @@ fn render_template(
     renderer: &SimpleRenderer,
     template_path: &str,
     ctx: &TemplateContext,
+    template_dir: Option<&Path>,
 ) -> Result<String> {
-    let template_content = get_template(template_path)?;
+    let template_content = get_template_with_override(template_path, template_dir)?;
     let template = StringTemplate::new(template_path, &template_content);
     renderer.render(&template, ctx)
 }
@@ -203,7 +212,7 @@ mod tests {
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let result = execute_new(&make_args("test-operator"));
+        let result = execute_new(&make_args("test-operator"), None);
 
         // Restore directory before assertions
         std::env::set_current_dir(&original_dir).unwrap();
@@ -226,7 +235,7 @@ mod tests {
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let result = execute_new(&make_args("my-operator"));
+        let result = execute_new(&make_args("my-operator"), None);
         std::env::set_current_dir(&original_dir).unwrap();
 
         assert!(result.is_ok());
@@ -245,7 +254,7 @@ mod tests {
 
         let mut args = make_args("dry-run-test");
         args.dry_run = true;
-        let result = execute_new(&args);
+        let result = execute_new(&args, None);
 
         std::env::set_current_dir(&original_dir).unwrap();
 
@@ -267,7 +276,7 @@ mod tests {
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp.path()).unwrap();
 
-        let result = execute_new(&make_args("existing-project"));
+        let result = execute_new(&make_args("existing-project"), None);
 
         std::env::set_current_dir(&original_dir).unwrap();
 
@@ -289,7 +298,7 @@ mod tests {
 
         let mut args = make_args("force-test");
         args.force = true;
-        let result = execute_new(&args);
+        let result = execute_new(&args, None);
 
         std::env::set_current_dir(&original_dir).unwrap();
 
@@ -308,7 +317,7 @@ mod tests {
             force: false,
         };
 
-        let result = execute_new(&args);
+        let result = execute_new(&args, None);
         assert!(result.is_err());
     }
 
@@ -332,7 +341,7 @@ mod tests {
         let mut ctx = TemplateContext::new();
         ctx.set("project_name", "test-op");
 
-        let result = render_template(&renderer, "project/Cargo.toml.tmpl", &ctx);
+        let result = render_template(&renderer, "project/Cargo.toml.tmpl", &ctx, None);
         assert!(result.is_ok());
         let content = result.unwrap();
         assert!(content.contains("name = \"test-op\""));

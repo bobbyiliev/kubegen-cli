@@ -13,8 +13,9 @@ use crate::error::{KubegenError, Result};
 
 pub use context::{CrdContext, CrdContextBuilder, ProjectContext, ProjectContextBuilder};
 pub use embedded::{
-    get_template, get_template_by_category, list_all_templates, list_templates, template_exists,
-    TemplateAssets, TemplateCategory,
+    get_template, get_template_by_category, get_template_with_override, list_all_templates,
+    list_templates, template_exists, template_exists_with_override, TemplateAssets,
+    TemplateCategory,
 };
 
 /// A context containing variables for template rendering

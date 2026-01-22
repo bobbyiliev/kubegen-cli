@@ -2,6 +2,8 @@
 //!
 //! This module defines the command-line interface using clap.
 
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 
 /// Build version string with git hash and build date
@@ -25,6 +27,10 @@ pub struct Cli {
     /// Enable verbose output
     #[arg(short, long, global = true)]
     pub verbose: bool,
+
+    /// Custom template directory to override embedded templates
+    #[arg(long, global = true, value_name = "DIR")]
+    pub template_dir: Option<PathBuf>,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -592,5 +598,54 @@ mod tests {
         let result = Cli::try_parse_from(["kubegen", "new", ""]);
         // Empty string is technically valid for clap, app-level validation handles this
         assert!(result.is_ok());
+    }
+
+    // Template directory tests
+    #[test]
+    fn test_parse_template_dir() {
+        let cli = Cli::parse_from([
+            "kubegen",
+            "--template-dir",
+            "/path/to/templates",
+            "new",
+            "test",
+        ]);
+        assert_eq!(cli.template_dir, Some(PathBuf::from("/path/to/templates")));
+    }
+
+    #[test]
+    fn test_parse_template_dir_with_add_command() {
+        let cli = Cli::parse_from([
+            "kubegen",
+            "--template-dir",
+            "./my-templates",
+            "add",
+            "crd",
+            "MyResource",
+        ]);
+        assert_eq!(cli.template_dir, Some(PathBuf::from("./my-templates")));
+        if let Commands::Add(AddCommands::Crd(args)) = cli.command {
+            assert_eq!(args.kind, "MyResource");
+        } else {
+            panic!("Expected Add Crd command");
+        }
+    }
+
+    #[test]
+    fn test_parse_no_template_dir() {
+        let cli = Cli::parse_from(["kubegen", "new", "test"]);
+        assert!(cli.template_dir.is_none());
+    }
+
+    #[test]
+    fn test_template_dir_global_flag() {
+        // Template dir can appear before or after subcommand
+        let cli1 = Cli::parse_from(["kubegen", "--template-dir", "/path", "new", "test"]);
+        let cli2 = Cli::parse_from(["kubegen", "new", "--template-dir", "/path", "test"]);
+        let cli3 = Cli::parse_from(["kubegen", "new", "test", "--template-dir", "/path"]);
+
+        assert_eq!(cli1.template_dir, Some(PathBuf::from("/path")));
+        assert_eq!(cli2.template_dir, Some(PathBuf::from("/path")));
+        assert_eq!(cli3.template_dir, Some(PathBuf::from("/path")));
     }
 }
