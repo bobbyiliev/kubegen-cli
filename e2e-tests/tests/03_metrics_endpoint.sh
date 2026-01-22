@@ -345,31 +345,24 @@ test_verify_pods_running() {
 test_metrics_endpoint() {
     log_info "Testing metrics endpoint..."
 
-    # Get pod name
-    local pod_name
-    pod_name=$(kubectl get pods -l "app=$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.items[0].metadata.name}')
+    # Get pod IP directly - more reliable than port-forward
+    local pod_ip
+    pod_ip=$(kubectl get pods -l "app=$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.items[0].status.podIP}')
+    log_info "Pod IP: ${pod_ip}"
 
-    # Use kubectl exec to curl the metrics endpoint from within the cluster
-    # We'll run a curl command from a temporary pod
-    log_info "Checking metrics endpoint via port-forward..."
+    # Use a curl pod to fetch metrics from within the cluster
+    log_info "Fetching metrics from http://${pod_ip}:${METRICS_PORT}/metrics"
 
-    # Start port-forward in background
-    kubectl port-forward "pod/$pod_name" -n "$TEST_NAMESPACE" 18080:${METRICS_PORT} &
-    local pf_pid=$!
-
-    # Give port-forward time to establish
-    sleep 3
-
-    # Fetch metrics
     local metrics_response
-    metrics_response=$(curl -s --connect-timeout 5 --max-time 10 http://localhost:18080/metrics 2>&1) || {
-        log_error "Failed to connect to metrics endpoint"
-        kill $pf_pid 2>/dev/null || true
+    metrics_response=$(kubectl run curl-test --rm -i --restart=Never \
+        --image=curlimages/curl:latest \
+        -n "$TEST_NAMESPACE" \
+        -- curl -s --connect-timeout 10 --max-time 15 "http://${pod_ip}:${METRICS_PORT}/metrics" 2>/dev/null) || {
+        log_error "Failed to fetch metrics"
         return 1
     }
 
-    # Kill port-forward
-    kill $pf_pid 2>/dev/null || true
+    log_info "Metrics response received (${#metrics_response} bytes)"
 
     # Verify response contains Prometheus metrics
     if echo "$metrics_response" | grep -q "# HELP\|# TYPE"; then
@@ -378,6 +371,7 @@ test_metrics_endpoint() {
         echo "$metrics_response" | head -20
     else
         log_error "Metrics endpoint did not return valid Prometheus format"
+        log_error "Response length: ${#metrics_response}"
         log_error "Response: $metrics_response"
         return 1
     fi
@@ -394,24 +388,19 @@ test_metrics_endpoint() {
 test_health_endpoint() {
     log_info "Testing health endpoint..."
 
-    # Get pod name
-    local pod_name
-    pod_name=$(kubectl get pods -l "app=$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.items[0].metadata.name}')
+    # Get pod IP
+    local pod_ip
+    pod_ip=$(kubectl get pods -l "app=$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.items[0].status.podIP}')
 
-    # Start port-forward in background
-    kubectl port-forward "pod/$pod_name" -n "$TEST_NAMESPACE" 18081:${METRICS_PORT} &
-    local pf_pid=$!
-
-    # Give port-forward time to establish
-    sleep 3
-
-    # Fetch health endpoint
+    # Use a curl pod to fetch health endpoint from within the cluster
     local health_response
-    local http_code
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 http://localhost:18081/healthz 2>&1) || http_code="000"
+    health_response=$(kubectl run curl-health --rm -i --restart=Never \
+        --image=curlimages/curl:latest \
+        -n "$TEST_NAMESPACE" \
+        -- curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 15 "http://${pod_ip}:${METRICS_PORT}/healthz" 2>/dev/null) || true
 
-    # Kill port-forward
-    kill $pf_pid 2>/dev/null || true
+    local http_code
+    http_code=$(echo "$health_response" | tail -1)
 
     if [ "$http_code" = "200" ]; then
         log_info "Health endpoint returned 200 OK"
