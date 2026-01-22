@@ -349,16 +349,20 @@ test_metrics_endpoint() {
     pod_name=$(kubectl get pods -l "app=$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.items[0].metadata.name}')
     log_info "Operator pod: ${pod_name}"
 
-    # Simple approach: exec into the pod and curl localhost
-    # This avoids all port-forward complexity
+    # Write curl output to a file inside the container, then cat it back
+    # This avoids stdout capture issues with kubectl exec
     log_info "Fetching metrics from inside the pod..."
 
-    local metrics_response
-    metrics_response=$(kubectl exec "$pod_name" -n "$TEST_NAMESPACE" -- curl -s "http://localhost:${METRICS_PORT}/metrics" 2>&1)
+    kubectl exec "$pod_name" -n "$TEST_NAMESPACE" -- sh -c 'curl -s http://localhost:'"${METRICS_PORT}"'/metrics > /tmp/metrics.txt 2>&1'
     local curl_exit=$?
-    local response_size=${#metrics_response}
 
     log_info "Curl exit code: ${curl_exit}"
+
+    # Read the file back
+    local metrics_response
+    metrics_response=$(kubectl exec "$pod_name" -n "$TEST_NAMESPACE" -- cat /tmp/metrics.txt)
+    local response_size=${#metrics_response}
+
     log_info "Metrics response received (${response_size} bytes)"
 
     # Verify response contains Prometheus metrics
@@ -369,7 +373,10 @@ test_metrics_endpoint() {
     else
         log_error "Metrics endpoint did not return valid Prometheus format"
         log_error "Response length: ${response_size}"
-        log_error "Response: ${metrics_response:0:500}"
+        log_error "Response (first 500 chars): ${metrics_response:0:500}"
+        # Show verbose curl output for debugging
+        log_error "Running verbose curl for debugging:"
+        kubectl exec "$pod_name" -n "$TEST_NAMESPACE" -- curl -v "http://localhost:${METRICS_PORT}/metrics" 2>&1 || true
         return 1
     fi
 
@@ -388,9 +395,11 @@ test_health_endpoint() {
     local pod_name
     pod_name=$(kubectl get pods -l "app=$TEST_PROJECT" -n "$TEST_NAMESPACE" -o jsonpath='{.items[0].metadata.name}')
 
-    # Simple approach: exec into the pod and curl localhost
+    # Write curl output to a file inside the container, then cat it back
+    kubectl exec "$pod_name" -n "$TEST_NAMESPACE" -- sh -c 'curl -s http://localhost:'"${METRICS_PORT}"'/healthz > /tmp/health.txt 2>&1' || true
+
     local health_response
-    health_response=$(kubectl exec "$pod_name" -n "$TEST_NAMESPACE" -- curl -s "http://localhost:${METRICS_PORT}/healthz" 2>&1) || true
+    health_response=$(kubectl exec "$pod_name" -n "$TEST_NAMESPACE" -- cat /tmp/health.txt) || true
 
     if [ "$health_response" = "ok" ]; then
         log_info "Health endpoint returned 'ok'"
