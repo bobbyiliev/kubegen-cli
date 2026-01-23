@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 /// Build version string with git hash and build date
 fn version_string() -> &'static str {
@@ -48,6 +48,9 @@ pub enum Commands {
 
     /// Upgrade project files to match current templates
     Upgrade(UpgradeArgs),
+
+    /// Generate shell completion scripts
+    Completion(CompletionArgs),
 }
 
 /// Arguments for the `new` command
@@ -177,6 +180,47 @@ pub struct UpgradeArgs {
     /// Only upgrade specific components (project, crd, metrics, webhook)
     #[arg(long, value_name = "COMPONENT")]
     pub only: Option<String>,
+}
+
+/// Arguments for the `completion` command
+#[derive(Parser, Debug)]
+#[command(after_help = r#"INSTALLATION:
+  Bash:
+    kubegen completion bash > /etc/bash_completion.d/kubegen
+    # Or for current user:
+    kubegen completion bash >> ~/.bashrc
+
+  Zsh:
+    kubegen completion zsh > "${fpath[1]}/_kubegen"
+    # Or add to ~/.zshrc:
+    eval "$(kubegen completion zsh)"
+
+  Fish:
+    kubegen completion fish > ~/.config/fish/completions/kubegen.fish
+
+  PowerShell:
+    kubegen completion powershell >> $PROFILE
+"#)]
+pub struct CompletionArgs {
+    /// Shell to generate completions for
+    #[arg(value_enum)]
+    pub shell: Shell,
+}
+
+/// Supported shells for completion generation
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+pub enum Shell {
+    /// Bash shell
+    Bash,
+    /// Zsh shell
+    Zsh,
+    /// Fish shell
+    Fish,
+    /// PowerShell
+    #[value(name = "powershell")]
+    PowerShell,
+    /// Elvish shell
+    Elvish,
 }
 
 #[cfg(test)]
@@ -738,5 +782,68 @@ mod tests {
         } else {
             panic!("Expected Upgrade command");
         }
+    }
+
+    // Completion command tests
+    #[test]
+    fn test_parse_completion_bash() {
+        let cli = Cli::parse_from(["kubegen", "completion", "bash"]);
+        if let Commands::Completion(args) = cli.command {
+            assert_eq!(args.shell, Shell::Bash);
+        } else {
+            panic!("Expected Completion command");
+        }
+    }
+
+    #[test]
+    fn test_parse_completion_zsh() {
+        let cli = Cli::parse_from(["kubegen", "completion", "zsh"]);
+        if let Commands::Completion(args) = cli.command {
+            assert_eq!(args.shell, Shell::Zsh);
+        } else {
+            panic!("Expected Completion command");
+        }
+    }
+
+    #[test]
+    fn test_parse_completion_fish() {
+        let cli = Cli::parse_from(["kubegen", "completion", "fish"]);
+        if let Commands::Completion(args) = cli.command {
+            assert_eq!(args.shell, Shell::Fish);
+        } else {
+            panic!("Expected Completion command");
+        }
+    }
+
+    #[test]
+    fn test_parse_completion_powershell() {
+        let cli = Cli::parse_from(["kubegen", "completion", "powershell"]);
+        if let Commands::Completion(args) = cli.command {
+            assert_eq!(args.shell, Shell::PowerShell);
+        } else {
+            panic!("Expected Completion command");
+        }
+    }
+
+    #[test]
+    fn test_parse_completion_elvish() {
+        let cli = Cli::parse_from(["kubegen", "completion", "elvish"]);
+        if let Commands::Completion(args) = cli.command {
+            assert_eq!(args.shell, Shell::Elvish);
+        } else {
+            panic!("Expected Completion command");
+        }
+    }
+
+    #[test]
+    fn test_completion_missing_shell() {
+        let result = Cli::try_parse_from(["kubegen", "completion"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_completion_invalid_shell() {
+        let result = Cli::try_parse_from(["kubegen", "completion", "invalid"]);
+        assert!(result.is_err());
     }
 }

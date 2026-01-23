@@ -3,7 +3,8 @@
 use clap::Parser;
 use kubegen::cli::{AddCommands, Cli, Commands};
 use kubegen::commands::{
-    execute_add_crd, execute_add_metrics, execute_add_webhook, execute_new, execute_upgrade,
+    execute_add_crd, execute_add_metrics, execute_add_webhook, execute_completion, execute_new,
+    execute_upgrade,
 };
 use tracing::{debug, error};
 
@@ -25,6 +26,10 @@ fn main() {
             AddCommands::Webhook(args) => execute_add_webhook(&args, template_dir),
         },
         Commands::Upgrade(args) => execute_upgrade(&args, template_dir),
+        Commands::Completion(args) => {
+            execute_completion(&args);
+            return;
+        }
     };
 
     if let Err(e) = result {
