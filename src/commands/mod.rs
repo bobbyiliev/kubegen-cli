@@ -2,6 +2,7 @@
 //!
 //! This module contains the actual implementation of each CLI command.
 
+mod completion;
 mod crd;
 mod metrics;
 mod new;
@@ -10,6 +11,7 @@ mod test_utils;
 mod upgrade;
 mod webhook;
 
+pub use completion::execute_completion;
 pub use crd::execute_add_crd;
 pub use metrics::execute_add_metrics;
 pub use new::execute_new;
