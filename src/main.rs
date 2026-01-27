@@ -4,7 +4,7 @@ use clap::Parser;
 use kubegen::cli::{AddCommands, Cli, Commands};
 use kubegen::commands::{
     execute_add_crd, execute_add_metrics, execute_add_webhook, execute_completion, execute_new,
-    execute_upgrade,
+    execute_upgrade, execute_version,
 };
 use tracing::{debug, error};
 
@@ -28,6 +28,10 @@ fn main() {
         Commands::Upgrade(args) => execute_upgrade(&args, template_dir),
         Commands::Completion(args) => {
             execute_completion(&args);
+            return;
+        }
+        Commands::Version => {
+            execute_version();
             return;
         }
     };

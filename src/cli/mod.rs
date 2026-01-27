@@ -51,6 +51,9 @@ pub enum Commands {
 
     /// Generate shell completion scripts
     Completion(CompletionArgs),
+
+    /// Show detailed version and build information
+    Version,
 }
 
 /// Arguments for the `new` command
@@ -845,5 +848,19 @@ mod tests {
     fn test_completion_invalid_shell() {
         let result = Cli::try_parse_from(["kubegen", "completion", "invalid"]);
         assert!(result.is_err());
+    }
+
+    // Version command tests
+    #[test]
+    fn test_parse_version_command() {
+        let cli = Cli::parse_from(["kubegen", "version"]);
+        assert!(matches!(cli.command, Commands::Version));
+    }
+
+    #[test]
+    fn test_parse_version_with_verbose() {
+        let cli = Cli::parse_from(["kubegen", "--verbose", "version"]);
+        assert!(cli.verbose);
+        assert!(matches!(cli.command, Commands::Version));
     }
 }
