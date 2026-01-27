@@ -26,9 +26,13 @@ fn main() {
     // Get build date
     let build_date = chrono_lite_date();
 
+    // Get Rust version
+    let rust_version = get_rust_version();
+
     // Set environment variables for compilation
     println!("cargo:rustc-env=KUBEGEN_GIT_HASH={}", git_hash);
     println!("cargo:rustc-env=KUBEGEN_BUILD_DATE={}", build_date);
+    println!("cargo:rustc-env=KUBEGEN_RUST_VERSION={}", rust_version);
 
     // Rerun if git HEAD changes
     println!("cargo:rerun-if-changed=.git/HEAD");
@@ -37,6 +41,23 @@ fn main() {
     // Validate templates
     println!("cargo:rerun-if-changed=templates/");
     validate_templates();
+}
+
+/// Get Rust version used for compilation
+fn get_rust_version() -> String {
+    Command::new("rustc")
+        .args(["--version"])
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                String::from_utf8(output.stdout).ok()
+            } else {
+                None
+            }
+        })
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 /// Get current date in YYYY-MM-DD format without external dependencies
