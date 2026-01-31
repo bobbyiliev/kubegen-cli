@@ -3,8 +3,8 @@
 use clap::Parser;
 use kubegen::cli::{AddCommands, Cli, Commands};
 use kubegen::commands::{
-    execute_add_crd, execute_add_metrics, execute_add_webhook, execute_completion, execute_new,
-    execute_upgrade, execute_version,
+    execute_add_crd, execute_add_metrics, execute_add_webhook, execute_completion, execute_list,
+    execute_new, execute_upgrade, execute_version,
 };
 use tracing::{debug, error};
 
@@ -34,6 +34,7 @@ fn main() {
             execute_version();
             return;
         }
+        Commands::List => execute_list(),
     };
 
     if let Err(e) = result {

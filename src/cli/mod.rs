@@ -54,6 +54,9 @@ pub enum Commands {
 
     /// Show detailed version and build information
     Version,
+
+    /// List components in current operator project
+    List,
 }
 
 /// Arguments for the `new` command
@@ -862,5 +865,19 @@ mod tests {
         let cli = Cli::parse_from(["kubegen", "--verbose", "version"]);
         assert!(cli.verbose);
         assert!(matches!(cli.command, Commands::Version));
+    }
+
+    // List command tests
+    #[test]
+    fn test_parse_list_command() {
+        let cli = Cli::parse_from(["kubegen", "list"]);
+        assert!(matches!(cli.command, Commands::List));
+    }
+
+    #[test]
+    fn test_parse_list_with_verbose() {
+        let cli = Cli::parse_from(["kubegen", "--verbose", "list"]);
+        assert!(cli.verbose);
+        assert!(matches!(cli.command, Commands::List));
     }
 }
