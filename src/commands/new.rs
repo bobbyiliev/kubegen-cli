@@ -40,16 +40,21 @@ pub fn execute_new(args: &NewArgs, template_dir: Option<&Path>) -> Result<()> {
         })?;
 
     let template_ctx = project_ctx.to_template_context();
-    let project_dir = Path::new(&args.name);
+
+    // Use --output directory if specified, otherwise use project name
+    let project_dir = args
+        .output
+        .clone()
+        .unwrap_or_else(|| std::path::PathBuf::from(&args.name));
 
     if args.dry_run {
-        return execute_dry_run(project_dir, &template_ctx, template_dir);
+        return execute_dry_run(&project_dir, &template_ctx, template_dir);
     }
 
     let write_opts = WriteOptions::with_force(args.force);
 
     // Check for conflicts before proceeding
-    let paths_to_create = get_paths_to_create(project_dir);
+    let paths_to_create = get_paths_to_create(&project_dir);
     let conflicts = check_conflicts(&paths_to_create, &write_opts);
     if !conflicts.is_empty() {
         return Err(crate::error::KubegenError::ValidationError(
@@ -58,11 +63,11 @@ pub fn execute_new(args: &NewArgs, template_dir: Option<&Path>) -> Result<()> {
     }
 
     // Create project structure
-    create_project_structure(project_dir, &template_ctx, &write_opts, template_dir)?;
+    create_project_structure(&project_dir, &template_ctx, &write_opts, template_dir)?;
 
     info!("Project '{}' created successfully!", args.name);
     info!("Next steps:");
-    info!("  cd {}", args.name);
+    info!("  cd {}", project_dir.display());
     info!("  cargo build");
     info!("  kubegen add crd MyResource --group {}", args.domain);
 
@@ -198,6 +203,7 @@ mod tests {
     fn make_args(name: &str) -> NewArgs {
         NewArgs {
             name: name.to_string(),
+            output: None,
             domain: "example.com".to_string(),
             non_interactive: true,
             dry_run: false,
@@ -311,6 +317,7 @@ mod tests {
     fn test_execute_new_invalid_name() {
         let args = NewArgs {
             name: "Invalid Name".to_string(), // Contains space
+            output: None,
             domain: "example.com".to_string(),
             non_interactive: true,
             dry_run: false,

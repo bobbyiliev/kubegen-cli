@@ -66,6 +66,10 @@ pub struct NewArgs {
     #[arg(value_name = "NAME")]
     pub name: String,
 
+    /// Output directory (defaults to project name)
+    #[arg(short, long, value_name = "DIR")]
+    pub output: Option<PathBuf>,
+
     /// Domain for the operator (e.g., example.com)
     #[arg(short, long, default_value = "example.com")]
     pub domain: String,
@@ -268,6 +272,44 @@ mod tests {
             assert_eq!(args.name, "my-operator");
             assert_eq!(args.domain, "mycompany.io");
             assert!(args.dry_run);
+        } else {
+            panic!("Expected New command");
+        }
+    }
+
+    #[test]
+    fn test_parse_new_with_output() {
+        let cli = Cli::parse_from([
+            "kubegen",
+            "new",
+            "my-operator",
+            "--output",
+            "/path/to/output",
+        ]);
+        if let Commands::New(args) = cli.command {
+            assert_eq!(args.name, "my-operator");
+            assert_eq!(args.output, Some(PathBuf::from("/path/to/output")));
+        } else {
+            panic!("Expected New command");
+        }
+    }
+
+    #[test]
+    fn test_parse_new_with_output_short() {
+        let cli = Cli::parse_from(["kubegen", "new", "my-operator", "-o", "./custom-dir"]);
+        if let Commands::New(args) = cli.command {
+            assert_eq!(args.name, "my-operator");
+            assert_eq!(args.output, Some(PathBuf::from("./custom-dir")));
+        } else {
+            panic!("Expected New command");
+        }
+    }
+
+    #[test]
+    fn test_parse_new_without_output() {
+        let cli = Cli::parse_from(["kubegen", "new", "my-operator"]);
+        if let Commands::New(args) = cli.command {
+            assert!(args.output.is_none());
         } else {
             panic!("Expected New command");
         }
